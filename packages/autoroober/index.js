@@ -146,12 +146,40 @@ function getVehicleReward(tierKey, variant) {
     return tier[variant % tier.length];
 }
 
-function ensureJob(player) {
+function ensureJob(player, options = {}) {
     if (!ensureModules()) return false;
-    if (!player.character || player.character.job !== JOB_ID) {
+    if (!player.character) return false;
+
+    if (player.character.job === JOB_ID) return true;
+
+    const { autoHire = false } = options;
+
+    if (!autoHire) {
         notifs.error(player, 'Вы не работаете автоугонщиком', 'Автоугон');
         return false;
     }
+
+    if (player.character.job && player.character.job !== JOB_ID) {
+        const currentJob = jobs.getJob(player.character.job);
+        const suffix = currentJob ? `работы "${currentJob.name}"` : 'другой работы';
+        notifs.error(player, `Сначала увольтесь с ${suffix}`, 'Автоугон');
+        return false;
+    }
+
+    const jobData = jobs.getJob(JOB_ID);
+    if (!jobData) {
+        notifs.error(player, 'Работа временно недоступна', 'Автоугон');
+        return false;
+    }
+
+    jobs.addMember(player, jobData);
+
+    if (player.character.job !== JOB_ID) {
+        notifs.error(player, 'Не удалось оформить трудоустройство', 'Автоугон');
+        return false;
+    }
+
+    notifs.success(player, 'Вы устроились на работу', jobData.name || 'Автоугонщик');
     return true;
 }
 
@@ -224,7 +252,7 @@ function expireOrder(player, reason = 'time') {
 
 function createOrder(player) {
     if (!ensureModules()) return;
-    if (!ensureJob(player)) return;
+    if (!ensureJob(player, { autoHire: true })) return;
     if (getOrder(player)) {
         notifs.error(player, 'У вас уже есть активный заказ', 'Автоугон');
         return;
@@ -421,9 +449,12 @@ function onStartColshapeEnter(player) {
     if (!ensureModules()) return;
     if (!player.character) return;
     if (player.vehicle) return notifs.error(player, 'Выйдите из транспорта', 'Автоугон');
-    if (!ensureJob(player)) return;
 
-    prompt.show(player, 'Нажмите <span>E</span>, чтобы открыть меню автоугона');
+    const promptText = player.character.job === JOB_ID
+        ? 'Нажмите <span>E</span>, чтобы открыть меню автоугона'
+        : 'Нажмите <span>E</span>, чтобы начать работу автоугонщиком';
+
+    prompt.show(player, promptText);
     player.call('autoroober.menu.state', [true]);
 }
 
