@@ -8,11 +8,12 @@ let initialized = false;
 
 function ensureModules() {
     if (!notifs || !money || !jobs || !prompt) {
-        if (typeof call !== 'function') return false;
-        if (!notifs) notifs = call('notifications');
-        if (!money) money = call('money');
-        if (!jobs) jobs = call('jobs');
-        if (!prompt) prompt = call('prompt');
+        const callFn = typeof global.call === 'function' ? global.call : null;
+        if (!callFn) return false;
+        if (!notifs) notifs = callFn('notifications');
+        if (!money) money = callFn('money');
+        if (!jobs) jobs = callFn('jobs');
+        if (!prompt) prompt = callFn('prompt');
     }
     return true;
 }
