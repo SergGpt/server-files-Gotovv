@@ -4,16 +4,18 @@ let notifs;
 let money;
 let jobs;
 let prompt;
+let vehiclesModule;
 let initialized = false;
 
 function ensureModules() {
-    if (!notifs || !money || !jobs || !prompt) {
+    if (!notifs || !money || !jobs || !prompt || !vehiclesModule) {
         const callFn = typeof global.call === 'function' ? global.call : null;
         if (!callFn) return false;
         if (!notifs) notifs = callFn('notifications');
         if (!money) money = callFn('money');
         if (!jobs) jobs = callFn('jobs');
         if (!prompt) prompt = callFn('prompt');
+        if (!vehiclesModule) vehiclesModule = callFn('vehicles');
     }
     return true;
 }
@@ -24,6 +26,30 @@ const START_RADIUS = 1.5;
 const DELIVERY_POS = new mp.Vector3(126.815, -3105.666, 5.595);
 const DELIVERY_RADIUS = 4;
 const DELIVERY_MARKER_HEIGHT = 4.095;
+
+function resolveVehicleProperties(modelName) {
+    const defaultProps = {
+        name: modelName,
+        maxFuel: 80,
+        consumption: 1.5,
+        license: 1,
+        price: 100000,
+        vehType: 0,
+        isElectric: 0,
+        trunkType: 1,
+    };
+
+    if (!vehiclesModule || typeof vehiclesModule.getVehiclePropertiesByModel !== 'function') {
+        return defaultProps;
+    }
+
+    try {
+        return vehiclesModule.getVehiclePropertiesByModel(modelName) || defaultProps;
+    } catch (err) {
+        console.log('[AUTOROOBER] Failed to resolve vehicle properties:', err);
+        return defaultProps;
+    }
+}
 
 const VEHICLE_TIERS = {
     low: ["dilettante", "blade", "picador", "virgo", "voodoo"],
@@ -287,6 +313,12 @@ function createOrder(player) {
 
     vehicle.autoRobberPlayerId = player.id;
     vehicle.locked = false;
+    const vehicleProps = resolveVehicleProperties(modelName);
+    vehicle.properties = vehicleProps;
+    vehicle.maxFuel = vehicleProps.maxFuel || 80;
+    vehicle.fuel = vehicleProps.maxFuel || 80;
+    vehicle.consumption = vehicleProps.consumption || 1.5;
+    vehicle.trunkType = vehicleProps.trunkType || 1;
 
     const now = Date.now();
     const expireAt = now + timeSettings.seconds * 1000;

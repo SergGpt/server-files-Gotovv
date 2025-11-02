@@ -9,6 +9,29 @@ let menuOpen = false;
 let activeOrder = null;
 let hackState = null;
 
+function sendNotification(type, message, header = 'Автоугон') {
+    if (!message) return;
+    const notify = mp.notify;
+    if (notify && typeof notify[type] === 'function') {
+        notify[type](message, header);
+        return;
+    }
+
+    const prefix = header ? `[${header}] ` : '';
+    if (mp.game && mp.game.graphics && typeof mp.game.graphics.notify === 'function') {
+        mp.game.graphics.notify(`${prefix}${message}`);
+        return;
+    }
+
+    if (mp.gui && mp.gui.chat && typeof mp.gui.chat.push === 'function') {
+        mp.gui.chat.push(`${prefix}${message}`);
+    }
+}
+
+const notifyInfo = (message, header = 'Автоугон') => sendNotification('info', message, header);
+const notifySuccess = (message, header = 'Автоугон') => sendNotification('success', message, header);
+const notifyError = (message, header = 'Автоугон') => sendNotification('error', message, header);
+
 function openMenu() {
     if (menuOpen) return;
     menuOpen = true;
@@ -42,9 +65,9 @@ function destroyOrder(reason) {
     }
     activeOrder = null;
     if (reason === 'time') {
-        mp.game.ui.notifications.show('~r~Вы не успели выполнить заказ');
+        notifyError('Вы не успели выполнить заказ');
     } else if (reason === 'vehicle') {
-        mp.game.ui.notifications.show('~r~Транспорт уничтожен');
+        notifyError('Транспорт уничтожен');
     }
 }
 
@@ -125,7 +148,7 @@ function onVehicleFound() {
 
     activeOrder.dropBlip = dropBlip;
     activeOrder.dropMarker = dropMarker;
-    mp.game.ui.notifications.show(`~b~${activeOrder.vehicleName.toUpperCase()} ~w~обнаружен. Везите авто в порт.`);
+    notifyInfo(`${activeOrder.vehicleName.toUpperCase()} обнаружен. Везите авто в порт.`, 'Симон');
 }
 
 function formatTime(seconds) {
@@ -162,7 +185,7 @@ mp.events.add('autoroober.menu.close', () => {
 });
 
 mp.events.add('autoroober.order.prepare', () => {
-    mp.game.ui.notifications.showWithPicture('Сообщение', 'Симон', 'Жди координаты цели', 'CHAR_SIMEON', 2);
+    notifyInfo('Жди координаты цели', 'Симон');
 });
 
 mp.events.add('autoroober.order.created', (sx, sy, sz, duration, vehicleName, vehicle, reward, dx, dy, dz) => {
@@ -170,7 +193,7 @@ mp.events.add('autoroober.order.created', (sx, sy, sz, duration, vehicleName, ve
     const spawnPos = new mp.Vector3(sx, sy, sz);
     const dropPos = new mp.Vector3(dx, dy, dz);
     setupOrder(spawnPos, vehicleName, vehicle, duration, reward, dropPos);
-    mp.game.ui.notifications.showWithPicture('Сообщение', 'Симон', `Найди ~b~${vehicleName.toUpperCase()}~w~ и вези в порт`, 'CHAR_SIMEON', 2);
+    notifyInfo(`Найди ${vehicleName.toUpperCase()} и вези в порт`, 'Симон');
 });
 
 mp.events.add('autoroober.order.clear', (reason) => {
@@ -181,7 +204,7 @@ mp.events.add('autoroober.order.clear', (reason) => {
 mp.events.add('autoroober.order.completed', (reward) => {
     stopHack();
     destroyOrder('success');
-    mp.game.ui.notifications.showWithPicture('Сообщение', 'Симон', `Угон завершён. Вы заработали ~g~$${reward}`, 'CHAR_SIMEON', 2);
+    notifySuccess(`Угон завершён. Вы заработали $${reward}`, 'Симон');
 });
 
 mp.events.add('autoroober.vehicle.hack', (duration) => {
@@ -195,10 +218,10 @@ mp.events.add('autoroober.vehicle.hack', (duration) => {
         duration,
         timeout: null,
     };
-    mp.game.ui.notifications.show('~b~Начался взлом транспорта');
+    notifyInfo('Начался взлом транспорта');
     hackState.timeout = setTimeout(() => {
         stopHack();
-        mp.game.ui.notifications.show('~g~Взлом завершён');
+        notifySuccess('Взлом завершён');
     }, duration * 1000);
 });
 
