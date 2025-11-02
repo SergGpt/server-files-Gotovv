@@ -1,42 +1,64 @@
-const autoRobber = require('./index');
+let autoRobber;
+let initTimer = null;
+
+function getAutoRobber() {
+    if (!autoRobber) {
+        autoRobber = require('./index');
+    }
+    return autoRobber;
+}
+
+function scheduleInit() {
+    if (initTimer) return;
+    initTimer = setTimeout(() => {
+        initTimer = null;
+        module.exports.init();
+    }, 100);
+}
 
 module.exports = {
     init: () => {
-        autoRobber.init();
-        inited(__dirname);
+        const mod = getAutoRobber();
+        if (mod.init()) {
+            inited(__dirname);
+        } else {
+            scheduleInit();
+        }
     },
     playerEnterColshape: (player, shape) => {
         if (!player.character) return;
-        if (shape === autoRobber.startColshape) {
-            autoRobber.onStartColshapeEnter(player);
+        const mod = getAutoRobber();
+        if (shape === mod.startColshape) {
+            mod.onStartColshapeEnter(player);
         }
-        if (shape === autoRobber.deliveryColshape) {
-            autoRobber.completeOrder(player);
+        if (shape === mod.deliveryColshape) {
+            mod.completeOrder(player);
         }
     },
     playerExitColshape: (player, shape) => {
         if (!player.character) return;
-        if (shape === autoRobber.startColshape) {
-            autoRobber.onStartColshapeExit(player);
+        const mod = getAutoRobber();
+        if (shape === mod.startColshape) {
+            mod.onStartColshapeExit(player);
         }
     },
     'autoroober.order.request': (player) => {
-        autoRobber.createOrder(player);
+        getAutoRobber().createOrder(player);
     },
     'autoroober.order.expired': (player) => {
-        autoRobber.expireOrder(player, 'time');
+        getAutoRobber().expireOrder(player, 'time');
     },
     playerQuit: (player) => {
-        autoRobber.cleanupPlayer(player);
+        getAutoRobber().cleanupPlayer(player);
     },
     'death.spawn': (player) => {
-        autoRobber.cleanupPlayer(player);
+        getAutoRobber().cleanupPlayer(player);
     },
     playerStartEnterVehicle: (player, vehicle, seat) => {
         if (seat !== 0) return;
-        autoRobber.onVehicleStartEnter(player, vehicle);
+        getAutoRobber().onVehicleStartEnter(player, vehicle);
     },
     playerEnterVehicle: (player, vehicle, seat) => {
-        autoRobber.onVehicleEnter(player, vehicle, seat);
+        getAutoRobber().onVehicleEnter(player, vehicle, seat);
     },
 };

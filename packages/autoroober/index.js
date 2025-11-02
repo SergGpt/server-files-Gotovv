@@ -1,9 +1,21 @@
 "use strict";
 
-const notifs = call('notifications');
-const money = call('money');
-const jobs = call('jobs');
-const prompt = call('prompt');
+let notifs;
+let money;
+let jobs;
+let prompt;
+let initialized = false;
+
+function ensureModules() {
+    if (!notifs || !money || !jobs || !prompt) {
+        if (typeof call !== 'function') return false;
+        if (!notifs) notifs = call('notifications');
+        if (!money) money = call('money');
+        if (!jobs) jobs = call('jobs');
+        if (!prompt) prompt = call('prompt');
+    }
+    return true;
+}
 
 const JOB_ID = 11;
 const START_POS = new mp.Vector3(158.976, -3082.372, 6.014);
@@ -134,6 +146,7 @@ function getVehicleReward(tierKey, variant) {
 }
 
 function ensureJob(player) {
+    if (!ensureModules()) return false;
     if (!player.character || player.character.job !== JOB_ID) {
         notifs.error(player, 'Вы не работаете автоугонщиком', 'Автоугон');
         return false;
@@ -162,6 +175,7 @@ function getOrder(player) {
 }
 
 function clearOrder(player, reason = null, notify = true) {
+    if (!ensureModules()) return;
     const order = orders.get(player.id);
     if (!order) return;
 
@@ -208,6 +222,7 @@ function expireOrder(player, reason = 'time') {
 }
 
 function createOrder(player) {
+    if (!ensureModules()) return;
     if (!ensureJob(player)) return;
     if (getOrder(player)) {
         notifs.error(player, 'У вас уже есть активный заказ', 'Автоугон');
@@ -303,6 +318,7 @@ function clearOrderData(order) {
 }
 
 function completeOrder(player) {
+    if (!ensureModules()) return;
     const order = getOrder(player);
     if (!order) return;
     if (!player.vehicle || player.vehicle !== order.vehicle) return;
@@ -325,6 +341,7 @@ function completeOrder(player) {
 }
 
 function onVehicleStartEnter(player, vehicle) {
+    if (!ensureModules()) return;
     const order = getOrder(player);
     if (!order) return;
     if (vehicle !== order.vehicle) return;
@@ -341,6 +358,7 @@ function onVehicleStartEnter(player, vehicle) {
 }
 
 function onVehicleEnter(player, vehicle, seat) {
+    if (!ensureModules()) return;
     if (seat !== 0) return;
     if (!vehicle.autoRobberPlayerId) return;
     if (vehicle.autoRobberPlayerId !== player.id) {
@@ -351,6 +369,7 @@ function onVehicleEnter(player, vehicle, seat) {
 }
 
 function handleVehicleDestroyed(vehicle) {
+    if (!ensureModules()) return;
     const playerId = vehicle.autoRobberPlayerId;
     if (!playerId) return;
     const order = orders.get(playerId);
@@ -365,12 +384,17 @@ function handleVehicleDestroyed(vehicle) {
 }
 
 function cleanupPlayer(player) {
+    if (!ensureModules()) return;
     const order = getOrder(player);
     if (!order) return;
     clearOrder(player, 'cancel', false);
 }
 
 function init() {
+    if (!ensureModules()) {
+        return false;
+    }
+    if (initialized) return true;
     startBlip = mp.blips.new(669, START_POS, {
         name: 'Автоугон',
         color: 1,
@@ -388,9 +412,12 @@ function init() {
     });
 
     mp.events.add('vehicleDestroyed', handleVehicleDestroyed);
+    initialized = true;
+    return true;
 }
 
 function onStartColshapeEnter(player) {
+    if (!ensureModules()) return;
     if (!player.character) return;
     if (player.vehicle) return notifs.error(player, 'Выйдите из транспорта', 'Автоугон');
     if (!ensureJob(player)) return;
@@ -400,6 +427,7 @@ function onStartColshapeEnter(player) {
 }
 
 function onStartColshapeExit(player) {
+    if (!ensureModules()) return;
     if (!player.character) return;
     prompt.hide(player);
     player.call('autoroober.menu.state', [false]);
