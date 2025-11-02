@@ -23,7 +23,7 @@ module.exports = {
     },
     addMember(player, job) {
         if (!player.character) return;
-        if (player.character.factionId && !factions.isCrimeFaction(player.character.factionId)) return;
+        if (player.character.factionId && !factions.isCrimeFaction(player.character.factionId) && job.id !== 4) return;
         if (typeof job == 'number') job = this.getJob(job);
         if (player.farmJob && job.id != 5) mp.events.call("farms.job.stop", player);
 
