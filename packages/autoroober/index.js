@@ -254,6 +254,7 @@ function clearOrder(player, reason = null, notify = true) {
 
     if (mp.players.exists(player)) {
         player.call('autoroober.order.clear', [reason || 'cancel']);
+        player.call('autoroober.menu.forceClose');
 
         if (notify && reason === 'time') {
             notifs.error(player, 'Вы не уложились в отведённое время', 'Автоугон');
@@ -313,6 +314,7 @@ function createOrder(player) {
 
     vehicle.autoRobberPlayerId = player.id;
     vehicle.locked = false;
+    vehicle.autoRobberUnlocked = false;
     const vehicleProps = resolveVehicleProperties(modelName);
     vehicle.properties = vehicleProps;
     vehicle.maxFuel = vehicleProps.maxFuel || 80;
@@ -407,6 +409,7 @@ function onVehicleStartEnter(player, vehicle) {
     if (!order) return;
     if (vehicle !== order.vehicle) return;
     if (vehicle.robbing) return;
+    if (vehicle.autoRobberUnlocked) return;
 
     vehicle.robbing = true;
     const hackDuration = getRandomInt(20, 35);
@@ -415,6 +418,7 @@ function onVehicleStartEnter(player, vehicle) {
         if (!mp.players.exists(player)) return;
         if (!mp.vehicles.exists(vehicle)) return;
         vehicle.robbing = false;
+        vehicle.autoRobberUnlocked = true;
     }, hackDuration * 1000);
 }
 
@@ -495,6 +499,7 @@ function onStartColshapeExit(player) {
     if (!player.character) return;
     prompt.hide(player);
     player.call('autoroober.menu.state', [false]);
+    player.call('autoroober.menu.forceClose');
 }
 
 module.exports = {

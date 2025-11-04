@@ -34,16 +34,17 @@ const notifyError = (message, header = 'Автоугон') => sendNotification('
 
 function openMenu() {
     if (menuOpen) return;
+    if (!mp.busy.add(MENU_BUSY_KEY, false)) return;
     menuOpen = true;
-    mp.busy.add(MENU_BUSY_KEY, false);
-    mp.callCEFV(`selectMenu.menu = cloneObj(selectMenu.menus["autoRobberJob"])`);
-    mp.callCEFV('selectMenu.show = true');
+    mp.callCEFV('selectMenu.menus["autoRobberJob"].i = 0');
+    mp.callCEFV('selectMenu.menus["autoRobberJob"].j = 0');
+    mp.callCEFV('selectMenu.showByName("autoRobberJob")');
 }
 
 function closeMenu() {
     if (!menuOpen) return;
     menuOpen = false;
-    mp.callCEFV('selectMenu.show = false');
+    mp.events.call('selectMenu.hide');
     mp.busy.remove(MENU_BUSY_KEY);
 }
 
@@ -181,6 +182,10 @@ mp.events.add('autoroober.menu.accept', () => {
 });
 
 mp.events.add('autoroober.menu.close', () => {
+    closeMenu();
+});
+
+mp.events.add('autoroober.menu.forceClose', () => {
     closeMenu();
 });
 

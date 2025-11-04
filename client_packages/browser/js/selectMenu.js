@@ -1807,6 +1807,9 @@ var selectMenu = new Vue({
                             mp.trigger('autoroober.menu.close');
                         }
                     }
+                    if (eventName == 'onBackspacePressed' || eventName == 'onEscapePressed') {
+                        mp.trigger('autoroober.menu.close');
+                    }
                 }
             },
             "fishingMenu": {
