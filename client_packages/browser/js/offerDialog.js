@@ -116,6 +116,26 @@ var offerDialog = new Vue({
                     mp.trigger("callRemote", "factions.invite.cancel");
                 },
             },
+            "family_invite": {
+                text: `Вас приглашают вступить в семью`,
+                inviteId: null,
+                on(values) {
+                    this.inviteId = values.inviteId;
+                    this.text = `<span>${values.name}</span> приглашает вступить в семью <span>${values.family}</span>`;
+                },
+                yes() {
+                    if (this.inviteId != null) mp.trigger("callRemote", "families.invite.accept", this.inviteId);
+                    mp.trigger('offerDialog.close');
+                },
+                no() {
+                    if (this.inviteId != null) mp.trigger("callRemote", "families.invite.decline", this.inviteId);
+                    mp.trigger('offerDialog.close');
+                },
+                ignore() {
+                    if (this.inviteId != null) mp.trigger("callRemote", "families.invite.decline", this.inviteId);
+                    mp.trigger('offerDialog.close');
+                },
+            },
             "hospital_healing": {
                 text: `Carter Slade предлагает вам лечение`,
                 price: 100,

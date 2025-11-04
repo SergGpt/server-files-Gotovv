@@ -3,6 +3,7 @@ import $ from 'jquery';
 
 const initialState = {
     phone: true,
+    families: false,
     // house: true,
     // business: true,
     // bank: true,
@@ -69,6 +70,11 @@ export default function forms(state = initialState, action) {
             return {
                 ...state,
                 players: payload
+            };
+        case 'SHOW_FAMILIES':
+            return {
+                ...state,
+                families: payload
             };
     }
 
