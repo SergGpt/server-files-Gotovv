@@ -7081,6 +7081,144 @@ var selectMenu = new Vue({
                     selectMenu.show = false;
                 }
             },
+            "farmsMain": {
+                name: "farmsMain",
+                header: "Фермерское хозяйство",
+                items: [
+                    { text: "Уровень", values: ["0 / 20"] },
+                    { text: "Прогресс", values: ["0%"] },
+                    { text: "Семена", values: ["0"] },
+                    { text: "Урожай", values: ["0"] },
+                    { text: "Всего собрано", values: ["0"] },
+                    { text: "До следующего уровня", values: ["100"] },
+                    { text: "Курс скупщика", values: ["$0"] },
+                    { text: "Помощь" },
+                    { text: "Закрыть" },
+                ],
+                i: 0,
+                j: 0,
+                data: null,
+                applyData(data) {
+                    data = data || {};
+                    var items = this.items;
+                    items[0].values[0] = `${data.level || 0} / ${data.maxLevel || 0}`;
+                    items[1].values[0] = `${data.progress || 0}%`;
+                    items[2].values[0] = `${data.seeds || 0}`;
+                    items[3].values[0] = `${data.harvest || 0}`;
+                    items[4].values[0] = `${data.totalHarvest || 0}`;
+                    if (data.maxLevel != null && data.level >= data.maxLevel) items[5].values[0] = 'Максимум';
+                    else items[5].values[0] = `${data.toNext != null ? data.toNext : 0}`;
+                    items[6].values[0] = `$${data.exchangeRate || 0}`;
+                },
+                init(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.update(data);
+                },
+                update(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.data = data;
+                    this.applyData(data);
+                },
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    var e = {
+                        menuName: this.name,
+                        itemName: item.text,
+                        itemIndex: this.i,
+                        itemValue: (item.i != null && item.values) ? item.values[item.i] : null,
+                        valueIndex: item.i,
+                    };
+                    if (eventName == 'onItemSelected') {
+                        if (e.itemName == 'Помощь') {
+                            modal.showByName('farms_help');
+                        } else if (e.itemName == 'Закрыть') {
+                            selectMenu.show = false;
+                        }
+                    } else if (eventName == 'onBackspacePressed') {
+                        selectMenu.show = false;
+                    }
+                }
+            },
+            "farmsVendor": {
+                name: "farmsVendor",
+                header: "Скупщик урожая",
+                items: [
+                    { text: "Уровень", values: ["0 / 20"] },
+                    { text: "Прогресс", values: ["0%"] },
+                    { text: "Семена", values: ["0"] },
+                    { text: "Урожай", values: ["0"] },
+                    { text: "Всего собрано", values: ["0"] },
+                    { text: "До следующего уровня", values: ["100"] },
+                    { text: "Курс скупщика", values: ["$0"] },
+                    { text: "Цена семян", values: ["$0"] },
+                    { text: "Купить семена", values: ["1 шт", "5 шт", "10 шт"], i: 0 },
+                    { text: "Продать урожай", values: ["$0"] },
+                    { text: "Закончить работу" },
+                    { text: "Помощь" },
+                    { text: "Закрыть" },
+                ],
+                i: 0,
+                j: 0,
+                data: null,
+                applyData(data) {
+                    data = data || {};
+                    var items = this.items;
+                    items[0].values[0] = `${data.level || 0} / ${data.maxLevel || 0}`;
+                    items[1].values[0] = `${data.progress || 0}%`;
+                    items[2].values[0] = `${data.seeds || 0}`;
+                    items[3].values[0] = `${data.harvest || 0}`;
+                    items[4].values[0] = `${data.totalHarvest || 0}`;
+                    if (data.maxLevel != null && data.level >= data.maxLevel) items[5].values[0] = 'Максимум';
+                    else items[5].values[0] = `${data.toNext != null ? data.toNext : 0}`;
+                    items[6].values[0] = `$${data.exchangeRate || 0}`;
+                    items[7].values[0] = `$${data.seedPrice || 0}`;
+                    items[9].values[0] = `$${data.estimatedReward || 0}`;
+                },
+                init(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.update(data);
+                },
+                update(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    if (this.items[8].i == null) this.items[8].i = 0;
+                    this.data = data;
+                    this.applyData(data);
+                },
+                getSelectedAmount() {
+                    var item = this.items[8];
+                    var index = item.i || 0;
+                    var options = [1, 5, 10];
+                    index = Math.clamp(index, 0, options.length - 1);
+                    return options[index];
+                },
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    var e = {
+                        menuName: this.name,
+                        itemName: item.text,
+                        itemIndex: this.i,
+                        itemValue: (item.i != null && item.values) ? item.values[item.i] : null,
+                        valueIndex: item.i,
+                    };
+                    if (eventName == 'onItemSelected') {
+                        if (e.itemName == 'Купить семена') {
+                            var amount = this.getSelectedAmount();
+                            mp.trigger('callRemote', 'farms.seed.buy', amount);
+                        } else if (e.itemName == 'Продать урожай') {
+                            mp.trigger('callRemote', 'farms.sell');
+                        } else if (e.itemName == 'Закончить работу') {
+                            selectMenu.show = false;
+                            mp.trigger('callRemote', 'jobs.leave');
+                        } else if (e.itemName == 'Помощь') {
+                            modal.showByName('farms_help');
+                        } else if (e.itemName == 'Закрыть') {
+                            selectMenu.show = false;
+                        }
+                    } else if (eventName == 'onBackspacePressed') {
+                        selectMenu.show = false;
+                    }
+                }
+            },
             "mason": {
                 name: "mason",
                 header: "Каменоломня",
