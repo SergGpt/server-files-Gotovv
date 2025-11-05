@@ -7,6 +7,8 @@ let timer = call("timer");
 
 const JOB_ID = 12;
 
+const ACTION_DURATION = 3000;
+
 module.exports = {
     jobId: JOB_ID,
     harvestPerSeed: 1,
@@ -19,28 +21,23 @@ module.exports = {
     minProcessTime: 10 * 1000,
     harvestsPerLevel: 100,
     maxLevel: 20,
-    farmMenuPos: new mp.Vector3(1960.572, 5163.742, 47.879 - 1),
-    vendorPos: new mp.Vector3(1956.281, 5157.392, 47.879 - 1),
-    plotsData: [
-        { x: 1955.971, y: 5167.531, z: 47.879 },
-        { x: 1958.412, y: 5169.893, z: 47.879 },
-        { x: 1960.947, y: 5172.225, z: 47.879 },
-        { x: 1963.324, y: 5174.594, z: 47.879 },
-        { x: 1965.781, y: 5176.942, z: 47.879 },
-        { x: 1968.267, y: 5179.286, z: 47.879 },
-        { x: 1970.684, y: 5181.613, z: 47.879 },
-        { x: 1973.169, y: 5183.971, z: 47.879 },
-        { x: 1975.603, y: 5186.305, z: 47.879 },
-        { x: 1978.062, y: 5188.655, z: 47.879 },
-        { x: 1980.506, y: 5191.008, z: 47.879 },
-        { x: 1982.968, y: 5193.329, z: 47.879 },
-    ],
+    farmMenuPos: new mp.Vector3(2024.585, 4985.102, 41.054 - 1),
+    vendorPos: new mp.Vector3(2019.842, 4978.912, 41.054 - 1),
+    fieldConfig: {
+        origin: new mp.Vector3(2030.0, 4994.0, 41.054),
+        rows: 6,
+        cols: 6,
+        spacing: 2.0,
+        heading: 0.0,
+    },
+    plotsData: [],
 
     plots: [],
     exchangeRate: 60,
     exchangeTimer: null,
 
     init() {
+        this.generatePlots();
         this.createFarmMenuZone();
         this.createVendorZone();
         this.createPlots();
@@ -115,6 +112,28 @@ module.exports = {
         return new mp.Vector3(pos.x, pos.y, pos.z + 1.5);
     },
 
+    generatePlots() {
+        const config = this.fieldConfig;
+        this.plotsData = [];
+        if (!config || !config.rows || !config.cols) return;
+        const rows = Math.max(1, parseInt(config.rows));
+        const cols = Math.max(1, parseInt(config.cols));
+        const spacing = parseFloat(config.spacing) || 2.0;
+        const heading = (parseFloat(config.heading) || 0) * Math.PI / 180;
+        const base = config.origin || new mp.Vector3(0, 0, 0);
+        const forwardX = Math.cos(heading) * spacing;
+        const forwardY = Math.sin(heading) * spacing;
+        const rightX = -Math.sin(heading) * spacing;
+        const rightY = Math.cos(heading) * spacing;
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const x = base.x + forwardX * row + rightX * col;
+                const y = base.y + forwardY * row + rightY * col;
+                this.plotsData.push({ x, y, z: base.z });
+            }
+        }
+    },
+
     createPlots() {
         this.plots = this.plotsData.map((plotData, index) => {
             const position = new mp.Vector3(plotData.x, plotData.y, plotData.z);
@@ -134,6 +153,8 @@ module.exports = {
                 colshape,
                 growthTimer: null,
                 cooldownTimer: null,
+                actionEndsAt: null,
+                actionId: null,
             };
         });
     },
@@ -150,6 +171,7 @@ module.exports = {
 
     stopJob(player) {
         if (!player) return;
+        this.cancelPlayerAction(player, true);
         this.releasePlayerPlots(player);
         if (player.farmJob) delete player.farmJob;
         player.call('farms.reset');
@@ -160,6 +182,7 @@ module.exports = {
 
     cleanupPlayer(player) {
         if (!player) return;
+        this.cancelPlayerAction(player, true);
         this.releasePlayerPlots(player);
     },
 
@@ -171,11 +194,23 @@ module.exports = {
                 plot.growthTimer = null;
                 if (plot.cooldownTimer) timer.remove(plot.cooldownTimer);
                 plot.cooldownTimer = null;
+                if (plot.actionId) {
+                    plot.actionId = null;
+                    plot.actionEndsAt = null;
+                }
                 plot.ownerId = null;
                 plot.ownerName = null;
                 plot.readyAt = null;
                 plot.cooldownAt = null;
                 plot.state = 'empty';
+                this.broadcastPlotUpdate(index);
+            }
+            if (plot.state === 'planting' || plot.state === 'harvesting') {
+                plot.state = 'empty';
+                plot.ownerId = null;
+                plot.ownerName = null;
+                plot.actionEndsAt = null;
+                plot.actionId = null;
                 this.broadcastPlotUpdate(index);
             }
         });
@@ -227,30 +262,61 @@ module.exports = {
         if (!this.isFarmer(player)) return;
         const plot = this.plots[index];
         if (!plot) return notifs.error(player, 'Грядка не найдена', 'Ферма');
+        if (player.farmAction) return notifs.warning(player, 'Завершите текущее действие', 'Ферма');
         if (plot.state !== 'empty') {
             if (plot.state === 'growing') return notifs.warning(player, 'Эта грядка уже занята посевами', 'Ферма');
             if (plot.state === 'ready') return notifs.warning(player, 'Сначала соберите урожай с этой грядки', 'Ферма');
             if (plot.state === 'cooldown') return notifs.warning(player, 'Грядка восстанавливается', 'Ферма');
+            if (plot.state === 'planting' || plot.state === 'harvesting') return notifs.warning(player, 'Грядка сейчас занята', 'Ферма');
             return notifs.warning(player, 'Эта грядка недоступна', 'Ферма');
         }
 
         const data = this.ensureJobData(player);
         if (!data.seeds || data.seeds <= 0) return notifs.warning(player, 'У вас нет семян', 'Ферма');
 
-        const level = this.getPlayerLevel(player);
-        const growthTime = this.getProcessTime(this.baseGrowthRange, level);
-
-        plot.state = 'growing';
+        data.seeds--;
+        plot.state = 'planting';
         plot.ownerId = player.id;
         plot.ownerName = player.name;
-        plot.readyAt = Date.now() + growthTime;
-        plot.growthTimer = timer.add(() => this.setPlotReady(index), growthTime);
-
-        data.seeds--;
-        this.broadcastPlotUpdate(index);
+        plot.actionEndsAt = Date.now() + ACTION_DURATION;
+        plot.actionId = null;
         this.sendMenuUpdate(player);
         this.refreshPlayerPlots(player);
-        notifs.info(player, `Семя посажено. Время роста ~ ${Math.round(growthTime / 1000)} сек.`, 'Ферма');
+
+        const complete = (actionPlayer) => {
+            const levelOwner = actionPlayer && actionPlayer.character ? this.getPlayerLevel(actionPlayer) : 0;
+            const growthTime = this.getProcessTime(this.baseGrowthRange, levelOwner);
+
+            plot.state = 'growing';
+            plot.readyAt = Date.now() + growthTime;
+            plot.actionEndsAt = null;
+            plot.actionId = null;
+            plot.growthTimer = timer.add(() => this.setPlotReady(index), growthTime);
+
+            this.broadcastPlotUpdate(index);
+            if (actionPlayer && actionPlayer.character) {
+                notifs.info(actionPlayer, `Семя посажено. Время роста ~ ${Math.round(growthTime / 1000)} сек.`, 'Ферма');
+                this.refreshPlayerPlots(actionPlayer);
+            }
+        };
+
+        const cancel = (actionPlayer, _plotRef, silentCancel) => {
+            plot.state = 'empty';
+            plot.ownerId = null;
+            plot.ownerName = null;
+            plot.actionEndsAt = null;
+            plot.actionId = null;
+            if (actionPlayer && actionPlayer.character) {
+                const jobData = this.ensureJobData(actionPlayer);
+                jobData.seeds = (jobData.seeds || 0) + 1;
+                this.sendMenuUpdate(actionPlayer);
+                this.refreshPlayerPlots(actionPlayer);
+                if (!silentCancel) notifs.warning(actionPlayer, 'Посадка прервана', 'Ферма');
+            }
+            this.broadcastPlotUpdate(index);
+        };
+
+        this.beginPlotAction(player, index, 'plant', complete, cancel);
     },
 
     setPlotReady(index) {
@@ -273,25 +339,53 @@ module.exports = {
         if (!this.isFarmer(player)) return;
         const plot = this.plots[index];
         if (!plot) return notifs.error(player, 'Грядка не найдена', 'Ферма');
+        if (player.farmAction) return notifs.warning(player, 'Завершите текущее действие', 'Ферма');
         if (plot.state !== 'ready') {
             if (plot.state === 'growing') return notifs.warning(player, 'Урожай еще созревает', 'Ферма');
             if (plot.state === 'cooldown') return notifs.warning(player, 'Грядка восстанавливается', 'Ферма');
+            if (plot.state === 'planting' || plot.state === 'harvesting') return notifs.warning(player, 'Грядка сейчас занята', 'Ферма');
             return notifs.warning(player, 'Эта грядка пока недоступна', 'Ферма');
         }
         if (plot.ownerId !== player.id) return notifs.error(player, 'Вы не сажали эту грядку', 'Ферма');
 
-        plot.state = 'cooldown';
-        plot.ownerId = null;
-        plot.ownerName = null;
-        const level = this.getPlayerLevel(player);
-        const cooldownTime = this.getProcessTime(this.baseCooldownRange, level);
-        plot.cooldownAt = Date.now() + cooldownTime;
-        if (plot.cooldownTimer) timer.remove(plot.cooldownTimer);
-        plot.cooldownTimer = timer.add(() => this.resetPlot(index), cooldownTime);
+        plot.state = 'harvesting';
+        plot.actionEndsAt = Date.now() + ACTION_DURATION;
+        plot.actionId = null;
 
-        this.registerHarvest(player, this.harvestPerSeed);
-        notifs.success(player, 'Вы собрали урожай', 'Ферма');
-        this.broadcastPlotUpdate(index);
+        const complete = (actionPlayer) => {
+            plot.ownerId = null;
+            plot.ownerName = null;
+            const levelOwner = actionPlayer && actionPlayer.character ? this.getPlayerLevel(actionPlayer) : 0;
+            const cooldownTime = this.getProcessTime(this.baseCooldownRange, levelOwner);
+            plot.cooldownAt = Date.now() + cooldownTime;
+            if (plot.cooldownTimer) timer.remove(plot.cooldownTimer);
+            plot.cooldownTimer = timer.add(() => this.resetPlot(index), cooldownTime);
+            plot.state = 'cooldown';
+            plot.actionEndsAt = null;
+            plot.actionId = null;
+
+            if (actionPlayer && actionPlayer.character) {
+                this.registerHarvest(actionPlayer, this.harvestPerSeed);
+            }
+            this.broadcastPlotUpdate(index);
+            if (actionPlayer && actionPlayer.character) {
+                notifs.success(actionPlayer, 'Вы собрали урожай', 'Ферма');
+                this.refreshPlayerPlots(actionPlayer);
+            }
+        };
+
+        const cancel = (actionPlayer, _plotRef, silentCancel) => {
+            plot.state = 'ready';
+            plot.actionEndsAt = null;
+            plot.actionId = null;
+            if (actionPlayer && actionPlayer.character) {
+                this.refreshPlayerPlots(actionPlayer);
+                if (!silentCancel) notifs.warning(actionPlayer, 'Сбор урожая прерван', 'Ферма');
+            }
+            this.broadcastPlotUpdate(index);
+        };
+
+        this.beginPlotAction(player, index, 'harvest', complete, cancel);
     },
 
     resetPlot(index) {
@@ -397,6 +491,7 @@ module.exports = {
             action: null,
             timeLeft: null,
             owner: plot.ownerName,
+            visualState: plot.state,
         };
         if (!plot) return result;
         const now = Date.now();
@@ -405,6 +500,7 @@ module.exports = {
                 result.state = 'available';
                 result.owner = null;
                 result.action = this.ensureJobData(player).seeds > 0 ? 'plant' : null;
+                result.visualState = 'available';
                 break;
             case 'growing':
                 if (plot.ownerId === player.id) {
@@ -414,6 +510,7 @@ module.exports = {
                 } else {
                     result.state = 'busy';
                 }
+                result.visualState = 'growing';
                 break;
             case 'ready':
                 if (plot.ownerId === player.id) {
@@ -423,14 +520,37 @@ module.exports = {
                 } else {
                     result.state = 'busy';
                 }
+                result.visualState = 'ready';
+                break;
+            case 'planting':
+                if (plot.ownerId === player.id) {
+                    result.state = 'planting';
+                    result.owner = null;
+                    result.timeLeft = Math.max(0, (plot.actionEndsAt || now) - now);
+                } else {
+                    result.state = 'busy';
+                }
+                result.visualState = 'planting';
+                break;
+            case 'harvesting':
+                if (plot.ownerId === player.id) {
+                    result.state = 'harvesting';
+                    result.owner = null;
+                    result.timeLeft = Math.max(0, (plot.actionEndsAt || now) - now);
+                } else {
+                    result.state = 'busy';
+                }
+                result.visualState = 'harvesting';
                 break;
             case 'cooldown':
                 result.state = 'cooldown';
                 result.owner = null;
                 result.timeLeft = Math.max(0, (plot.cooldownAt || now) - now);
+                result.visualState = 'cooldown';
                 break;
             default:
                 result.state = 'busy';
+                result.visualState = 'busy';
                 break;
         }
         return result;
@@ -502,5 +622,66 @@ module.exports = {
                 this.sendMenuUpdate(player);
             });
         }
+    },
+
+    beginPlotAction(player, plotIndex, type, onComplete, onCancel) {
+        if (!player || !player.character) return;
+        const plot = this.plots[plotIndex];
+        if (!plot) return;
+        if (player.farmAction) {
+            notifs.warning(player, 'Вы уже заняты', 'Ферма');
+            return;
+        }
+
+        const action = {
+            playerId: player.id,
+            plotIndex,
+            type,
+            finishAt: Date.now() + ACTION_DURATION,
+            onComplete,
+            onCancel,
+            finished: false,
+            timer: null,
+            timerId: null,
+        };
+
+        action.timer = timer.add(() => this.finishPlotAction(action), ACTION_DURATION);
+        if (action.timer) action.timerId = action.timer.id;
+        plot.actionEndsAt = action.finishAt;
+        plot.actionId = action.timerId;
+        player.farmAction = action;
+        player.call('farms.action.start', [type, ACTION_DURATION, plotIndex]);
+        this.broadcastPlotUpdate(plotIndex);
+    },
+
+    finishPlotAction(action, canceled = false) {
+        if (!action || action.finished) return;
+        action.finished = true;
+        const plot = this.plots[action.plotIndex];
+        if (plot && plot.actionId === action.timerId) {
+            plot.actionId = null;
+            plot.actionEndsAt = null;
+        }
+
+        const player = mp.players.at(action.playerId);
+        if (player && player.farmAction === action) {
+            delete player.farmAction;
+        }
+
+        if (player) {
+            player.call('farms.action.stop', [canceled && !action.silent]);
+        }
+
+        if (canceled) {
+            if (typeof action.onCancel === 'function') action.onCancel(player, plot, action.silent);
+        } else {
+            if (typeof action.onComplete === 'function') action.onComplete(player, plot);
+        }
+    },
+
+    cancelPlayerAction(player, silent = false) {
+        if (!player || !player.farmAction) return;
+        player.farmAction.silent = silent;
+        this.finishPlotAction(player.farmAction, true);
     },
 };
