@@ -37,4 +37,7 @@ module.exports = {
     'farms.menu.sync': (player) => {
         farms.sendMenuUpdate(player);
     },
+    'farms.job.join': (player) => {
+        farms.requestJob(player);
+    },
 };

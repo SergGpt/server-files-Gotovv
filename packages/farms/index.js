@@ -68,12 +68,17 @@ module.exports = {
         mp.markers.new(1, pos, 0.75, { color: [120, 200, 80, 120] });
         const colshape = mp.colshapes.newSphere(pos.x, pos.y, pos.z, 1.5);
         colshape.onEnter = (player) => {
-            if (!this.isFarmer(player)) return;
+            if (!player || !player.character) return;
+            if (!this.isFarmer(player)) {
+                player.call('farms.job.prompt', [true]);
+                return;
+            }
             this.showMainMenu(player);
         };
         colshape.onExit = (player) => {
             if (!player || !player.character) return;
             player.call('farms.menu.hide');
+            player.call('farms.job.prompt', [false]);
         };
         mp.blips.new(501, this.adjustBlipPos(pos), {
             name: "Ферма",
@@ -88,7 +93,10 @@ module.exports = {
         mp.markers.new(1, pos, 0.75, { color: [200, 140, 40, 120] });
         const colshape = mp.colshapes.newSphere(pos.x, pos.y, pos.z, 1.5);
         colshape.onEnter = (player) => {
-            if (!this.isFarmer(player)) return;
+            if (!this.isFarmer(player)) {
+                if (player && player.character) notifs.warning(player, 'Устройтесь фермером, чтобы продать урожай', 'Ферма');
+                return;
+            }
             this.showVendorMenu(player);
         };
         colshape.onExit = (player) => {
@@ -134,6 +142,7 @@ module.exports = {
         const data = this.ensureJobData(player);
         data.seeds = data.seeds || 0;
         data.harvest = data.harvest || 0;
+        player.call('farms.job.prompt', [false]);
         this.syncPlotsForPlayer(player);
         this.sendMenuUpdate(player);
         notifs.info(player, 'Вы приступили к работе фермера', 'Ферма');
@@ -146,6 +155,7 @@ module.exports = {
         player.call('farms.reset');
         player.call('farms.menu.hide');
         player.call('farms.vendor.hide');
+        player.call('farms.job.prompt', [false]);
     },
 
     cleanupPlayer(player) {
@@ -179,6 +189,21 @@ module.exports = {
             };
         }
         return player.farmJob;
+    },
+
+    requestJob(player) {
+        if (!player || !player.character) return;
+        if (player.character.job === this.jobId) {
+            this.showMainMenu(player);
+            return;
+        }
+
+        mp.events.call('jobs.set', player, this.jobId);
+
+        if (player.character.job === this.jobId) {
+            player.call('farms.job.prompt', [false]);
+            this.showMainMenu(player);
+        }
     },
 
     isFarmer(player) {

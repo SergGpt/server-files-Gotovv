@@ -4,6 +4,7 @@ let plotMarkers = [];
 let plotStates = [];
 let plotPositions = [];
 let currentPlot = null;
+let jobPromptActive = false;
 
 const markerColors = {
     available: [124, 194, 91, 120],
@@ -47,7 +48,11 @@ function updateMarker(index) {
 
 function updatePrompt() {
     if (!currentPlot) {
-        mp.prompt.hide();
+        if (jobPromptActive) {
+            mp.prompt.show('Нажмите <span>E</span>, чтобы устроиться фермером');
+        } else {
+            mp.prompt.hide();
+        }
         return;
     }
     const { state, action, timeLeft } = currentPlot;
@@ -114,7 +119,7 @@ mp.events.add({
     },
     'farms.plot.exit': () => {
         currentPlot = null;
-        mp.prompt.hide();
+        updatePrompt();
     },
     'farms.plot.ready': (index) => {
         index = parseInt(index);
@@ -142,13 +147,22 @@ mp.events.add({
     'farms.reset': () => {
         clearMarkers();
         currentPlot = null;
+        jobPromptActive = false;
         mp.prompt.hide();
+    },
+    'farms.job.prompt': (state) => {
+        jobPromptActive = !!state;
+        updatePrompt();
     }
 });
 
 mp.keys.bind(0x45, true, () => {
-    if (!currentPlot) return;
     if (mp.busy.includes()) return;
+    if (jobPromptActive && !currentPlot) {
+        mp.events.callRemote('farms.job.join');
+        return;
+    }
+    if (!currentPlot) return;
     if (currentPlot.action === 'plant') {
         mp.events.callRemote('farms.plot.plant', currentPlot.index);
         mp.prompt.hide();
@@ -160,5 +174,6 @@ mp.keys.bind(0x45, true, () => {
 
 mp.events.add('playerQuit', () => {
     currentPlot = null;
+    jobPromptActive = false;
     mp.prompt.hide();
 });
