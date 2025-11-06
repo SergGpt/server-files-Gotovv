@@ -400,8 +400,8 @@ class Match {
         const newX = pos.x + moveX;
         const baseY = spawn.y;
         const yOffset = this.ball.inPlay ? clamp((this.ball.pos.y - baseY) * 0.2, -1.2, 1.2) : 0;
-        const targetY = clamp(baseY + yOffset, bounds.minY + 0.8, bounds.maxY - 0.8);
-        ped.position = new mp.Vector3(newX, targetY, spawn.z);
+        const desiredY = clamp(baseY + yOffset, bounds.minY + 0.8, bounds.maxY - 0.8);
+        ped.position = new mp.Vector3(newX, desiredY, spawn.z);
         const opponentSpawn = side === 'a' ? this.court.bSpawn : this.court.aSpawn;
         ped.heading = computeHeading(ped.position, opponentSpawn);
 
