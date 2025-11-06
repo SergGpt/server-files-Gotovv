@@ -45,8 +45,8 @@ const ballState = {
 };
 
 if (mp.attachmentMngr) {
-    mp.attachmentMngr.register('tennis_racket', 'prop_tennis_rack_01', 28422,
-        new mp.Vector3(0.48, -0.03, 0.01), new mp.Vector3(-9.64, -79.56, 66.6));
+    mp.attachmentMngr.register('tennis_racket', 'prop_tennis_rack_01', 57005,
+        new mp.Vector3(0.12, 0.02, 0.0), new mp.Vector3(-90.0, 0.0, 0.0));
 }
 
 function destroyBallObject() {
@@ -67,38 +67,10 @@ function getInitialBallPosition() {
     return { x: pos.x, y: pos.y, z: pos.z };
 }
 
-function ensureBallObject() {
-    if (ballObject && mp.objects.exists(ballObject)) return;
-    if (!mp.objects || !mp.objects.new) return;
-    const initial = getInitialBallPosition();
-    const position = new mp.Vector3(initial.x, initial.y, initial.z);
-    ballObject = mp.objects.new(BALL_MODEL_NAME, position, {
-        dimension: mp.players.local.dimension
-    });
-    try { ballObject.setCollision(false, false); } catch (e) {}
-    try { ballObject.freezePosition(false); } catch (e) {}
-}
+function ensureBallObject() { return null; }
 
 function updateBallRender(force = false) {
-    if (!ballState.pos) return;
-    ensureBallObject();
-    if (!ballObject || !mp.objects.exists(ballObject)) return;
-
-    let target = { x: ballState.pos.x, y: ballState.pos.y, z: ballState.pos.z };
-
-    if (!force && ballState.inPlay && ballState.vel) {
-        const dt = Math.min((Date.now() - ballState.lastUpdate) / 1000, 0.35);
-        target = {
-            x: ballState.pos.x + ballState.vel.x * dt,
-            y: ballState.pos.y + ballState.vel.y * dt,
-            z: ballState.pos.z + ballState.vel.z * dt - 0.5 * LOCAL_GRAVITY * dt * dt
-        };
-        const groundZ = tennisState.court && tennisState.court.center ? tennisState.court.center.z : ballState.pos.z;
-        if (target.z < groundZ) target.z = groundZ;
-    }
-
-    ballObject.position = new mp.Vector3(target.x, target.y, target.z);
-    ballObject.dimension = mp.players.local.dimension;
+    return;
 }
 
 function registerMenus() {

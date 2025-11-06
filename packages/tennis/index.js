@@ -36,9 +36,9 @@ const matches = new Map();
 const courtShapes = new Map();
 
 const RACKET_ATTACH = {
-    bone: 28422,
-    pos: { x: 0.48, y: -0.03, z: 0.01 },
-    rot: { x: -9.64, y: -79.56, z: 66.6 }
+    bone: 57005,
+    pos: { x: 0.12, y: 0.02, z: 0.0 },
+    rot: { x: -90.0, y: 0.0, z: 0.0 }
 };
 
 let notifications;
@@ -139,7 +139,9 @@ class Match {
         };
         this.points = { a: 0, b: 0 };
         this.advantage = null;
-        this.serverSide = 'a';
+        const npcOnB = sideB && sideB.type === 'npc';
+        const playerOnA = sideA && sideA.type === 'player';
+        this.serverSide = npcOnB && playerOnA ? 'b' : 'a';
         this.finished = false;
         this.playerStates = new Map();
         this.ball = {
@@ -251,14 +253,19 @@ class Match {
                 moveSpeed: 3.2,
                 standing: false
             };
-            try {
-                participant.racket = mp.objects.new(RACKET_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
-                    dimension: this.dimension
-                });
-                const bone = ped.getBoneIndex(RACKET_ATTACH.bone);
-                if (bone !== -1) {
+            participant.attachTimer = setTimeout(() => {
+                try {
+                    if (!participant.ped || !mp.peds.exists(participant.ped)) return;
+                    const bone = participant.ped.getBoneIndex(RACKET_ATTACH.bone);
+                    if (bone === -1) return;
+                    if (participant.racket && mp.objects.exists(participant.racket)) {
+                        participant.racket.destroy();
+                    }
+                    participant.racket = mp.objects.new(RACKET_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
+                        dimension: this.dimension
+                    });
                     participant.racket.attachTo(
-                        ped.handle,
+                        participant.ped.handle,
                         bone,
                         RACKET_ATTACH.pos.x,
                         RACKET_ATTACH.pos.y,
@@ -273,15 +280,12 @@ class Match {
                         2,
                         true
                     );
-                } else {
-                    participant.racket.destroy();
+                } catch (err) {
+                    console.log('[TENNIS] NPC racket attach failed', err.message);
+                    if (participant.racket && mp.objects.exists(participant.racket)) participant.racket.destroy();
                     participant.racket = null;
                 }
-            } catch (err) {
-                console.log('[TENNIS] NPC racket attach failed', err.message);
-                if (participant.racket && mp.objects.exists(participant.racket)) participant.racket.destroy();
-                participant.racket = null;
-            }
+            }, 150);
         }
     }
 
@@ -740,6 +744,10 @@ class Match {
                 player.tennisSide = null;
                 player.call('tennis.match.cleanup');
             } else if (participant.type === 'npc') {
+                if (participant.attachTimer) {
+                    clearTimeout(participant.attachTimer);
+                    participant.attachTimer = null;
+                }
                 if (participant.racket && mp.objects.exists(participant.racket)) {
                     participant.racket.destroy();
                 }
