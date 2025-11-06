@@ -156,6 +156,7 @@ class Match {
         this.netObj = null;
         this.interval = null;
         this.npcData = null;
+        this.lastBallSync = 0;
     }
 
     otherSide(side) {
@@ -229,7 +230,9 @@ class Match {
             player.heading = heading;
             player.tennisMatch = this;
             player.tennisSide = side;
-            player.addAttachment('tennis_racket');
+            if (typeof player.addAttachment === 'function') {
+                player.addAttachment('tennis_racket');
+            }
         } else if (participant.type === 'npc') {
             const heading = computeHeading(spawn, opponentSpawn);
             const ped = mp.peds.new(participant.model || NPC_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
@@ -374,6 +377,18 @@ class Match {
         this.broadcast('tennis.score.update', payload);
     }
 
+    broadcastBallState(force = false) {
+        const now = Date.now();
+        if (!force && now - this.lastBallSync < TICK_MS) return;
+        const payload = {
+            pos: { x: this.ball.pos.x, y: this.ball.pos.y, z: this.ball.pos.z },
+            vel: { x: this.ball.vel.x, y: this.ball.vel.y, z: this.ball.vel.z },
+            inPlay: this.ball.inPlay
+        };
+        this.broadcast('tennis.ball.sync', payload);
+        this.lastBallSync = now;
+    }
+
     sendPointNotifications(winnerSide, reason) {
         const winner = this.getPlayer(winnerSide);
         const loser = this.getPlayer(this.otherSide(winnerSide));
@@ -385,6 +400,7 @@ class Match {
         if (this.finished) return;
         if (!this.ball.inPlay) {
             this.updateBallObject();
+            this.broadcastBallState();
             this.updateNpc();
             return;
         }
@@ -419,6 +435,7 @@ class Match {
         }
 
         this.updateBallObject();
+        this.broadcastBallState();
 
         if (Math.abs(this.ball.vel.x) < 0.05) this.ball.vel.x = 0;
         if (Math.abs(this.ball.vel.y) < 0.05) this.ball.vel.y = 0;
@@ -568,6 +585,7 @@ class Match {
             z: vertical
         };
         this.updateBallObject();
+        this.broadcastBallState(true);
     }
 
     serve(entity, side, charge, aimX, aimY, aimZ) {
@@ -646,6 +664,7 @@ class Match {
         this.ball.pos = vectorToObject(this.court.center);
         this.ball.vel = { x: 0, y: 0, z: 0 };
         this.updateBallObject();
+        this.broadcastBallState(true);
         if (this.npcData && this.npcData.side === this.serverSide) {
             this.npcData.nextServeTime = Date.now() + 1400;
         }
@@ -714,7 +733,9 @@ class Match {
                     player.position = toVector3(state.position);
                     player.heading = state.heading;
                 }
-                player.addAttachment('tennis_racket', true);
+                if (typeof player.addAttachment === 'function') {
+                    player.addAttachment('tennis_racket', true);
+                }
                 player.tennisMatch = null;
                 player.tennisSide = null;
                 player.call('tennis.match.cleanup');

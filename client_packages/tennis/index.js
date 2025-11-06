@@ -1,6 +1,8 @@
 const KEY_SWING = 0x01;
 const KEY_MENU = 0x45;
 const SCORE_DISPLAY_DURATION = 6000;
+const BALL_MODEL_NAME = 'prop_tennis_ball';
+const LOCAL_GRAVITY = 9.81;
 
 let tennisState = {
     active: false,
@@ -19,7 +21,8 @@ let tennisState = {
     finished: false,
     finishUntil: 0,
     winnerSide: null,
-    endReason: null
+    endReason: null,
+    court: null
 };
 
 let keysBound = false;
@@ -33,9 +36,69 @@ let menuState = {
 };
 let menusRegistered = false;
 
+let ballObject = null;
+const ballState = {
+    pos: null,
+    vel: { x: 0, y: 0, z: 0 },
+    inPlay: false,
+    lastUpdate: 0
+};
+
 if (mp.attachmentMngr) {
     mp.attachmentMngr.register('tennis_racket', 'prop_tennis_rack_01', 28422,
-        { x: 0.48, y: -0.03, z: 0.01 }, { x: -9.64, y: -79.56, z: 66.6 });
+        new mp.Vector3(0.48, -0.03, 0.01), new mp.Vector3(-9.64, -79.56, 66.6));
+}
+
+function destroyBallObject() {
+    if (ballObject && mp.objects.exists(ballObject)) {
+        ballObject.destroy();
+    }
+    ballObject = null;
+    ballState.pos = null;
+    ballState.vel = { x: 0, y: 0, z: 0 };
+    ballState.inPlay = false;
+    ballState.lastUpdate = 0;
+}
+
+function getInitialBallPosition() {
+    if (ballState.pos) return ballState.pos;
+    if (tennisState.court && tennisState.court.center) return tennisState.court.center;
+    const pos = mp.players.local.position;
+    return { x: pos.x, y: pos.y, z: pos.z };
+}
+
+function ensureBallObject() {
+    if (ballObject && mp.objects.exists(ballObject)) return;
+    if (!mp.objects || !mp.objects.new) return;
+    const initial = getInitialBallPosition();
+    const position = new mp.Vector3(initial.x, initial.y, initial.z);
+    ballObject = mp.objects.new(BALL_MODEL_NAME, position, {
+        dimension: mp.players.local.dimension
+    });
+    try { ballObject.setCollision(false, false); } catch (e) {}
+    try { ballObject.freezePosition(false); } catch (e) {}
+}
+
+function updateBallRender(force = false) {
+    if (!ballState.pos) return;
+    ensureBallObject();
+    if (!ballObject || !mp.objects.exists(ballObject)) return;
+
+    let target = { x: ballState.pos.x, y: ballState.pos.y, z: ballState.pos.z };
+
+    if (!force && ballState.inPlay && ballState.vel) {
+        const dt = Math.min((Date.now() - ballState.lastUpdate) / 1000, 0.35);
+        target = {
+            x: ballState.pos.x + ballState.vel.x * dt,
+            y: ballState.pos.y + ballState.vel.y * dt,
+            z: ballState.pos.z + ballState.vel.z * dt - 0.5 * LOCAL_GRAVITY * dt * dt
+        };
+        const groundZ = tennisState.court && tennisState.court.center ? tennisState.court.center.z : ballState.pos.z;
+        if (target.z < groundZ) target.z = groundZ;
+    }
+
+    ballObject.position = new mp.Vector3(target.x, target.y, target.z);
+    ballObject.dimension = mp.players.local.dimension;
 }
 
 function registerMenus() {
@@ -103,6 +166,7 @@ const bindKeys = (state) => {
 function resetState() {
     bindKeys(false);
     if (mp.busy.includes('tennis')) mp.busy.remove('tennis');
+    destroyBallObject();
     tennisState = {
         active: false,
         side: null,
@@ -120,7 +184,8 @@ function resetState() {
         finished: false,
         finishUntil: 0,
         winnerSide: null,
-        endReason: null
+        endReason: null,
+        court: null
     };
 }
 
@@ -253,6 +318,7 @@ mp.events.add('render', () => {
 
     renderScoreboard();
     renderCharge();
+    updateBallRender();
 
     if (tennisState.finished && tennisState.finishUntil && Date.now() > tennisState.finishUntil) {
         resetState();
@@ -460,12 +526,24 @@ mp.events.add('tennis.match.start', (json) => {
         tennisState.opponent = data.opponent || 'Соперник';
         tennisState.opponentType = data.opponentType || 'player';
         tennisState.names = data.players || tennisState.names;
+        tennisState.court = data.court || null;
         tennisState.finished = false;
         tennisState.finishUntil = 0;
         tennisState.lastReason = 'Матч начался';
         tennisState.lastReasonTime = Date.now();
         tennisState.winnerSide = null;
         tennisState.endReason = null;
+        if (tennisState.court && tennisState.court.center) {
+            ballState.pos = {
+                x: Number(tennisState.court.center.x) || 0,
+                y: Number(tennisState.court.center.y) || 0,
+                z: Number(tennisState.court.center.z) || 0
+            };
+            ballState.vel = { x: 0, y: 0, z: 0 };
+            ballState.inPlay = false;
+            ballState.lastUpdate = Date.now();
+            updateBallRender(true);
+        }
         bindKeys(true);
         mp.busy.add('tennis', false, true);
         mp.notify.info('Матч по теннису начался. Используйте ЛКМ для удара.');
@@ -497,6 +575,32 @@ mp.events.add('tennis.score.update', (json) => {
     }
 });
 
+mp.events.add('tennis.ball.sync', (json) => {
+    try {
+        const data = JSON.parse(json);
+        if (!tennisState.active || tennisState.finished) return;
+        if (data.pos) {
+            ballState.pos = {
+                x: Number(data.pos.x) || 0,
+                y: Number(data.pos.y) || 0,
+                z: Number(data.pos.z) || 0
+            };
+        }
+        if (data.vel) {
+            ballState.vel = {
+                x: Number(data.vel.x) || 0,
+                y: Number(data.vel.y) || 0,
+                z: Number(data.vel.z) || 0
+            };
+        }
+        if (typeof data.inPlay === 'boolean') ballState.inPlay = data.inPlay;
+        ballState.lastUpdate = Date.now();
+        updateBallRender(true);
+    } catch (e) {
+        mp.console.logInfo(`tennis.ball.sync error: ${e.message}`);
+    }
+});
+
 mp.events.add('tennis.state.update', (json) => {
     try {
         const data = JSON.parse(json);
@@ -515,6 +619,8 @@ mp.events.add('tennis.match.end', (json) => {
         tennisState.finishUntil = Date.now() + SCORE_DISPLAY_DURATION;
         bindKeys(false);
         if (mp.busy.includes('tennis')) mp.busy.remove('tennis');
+        destroyBallObject();
+        tennisState.court = null;
     } catch (e) {
         mp.console.logInfo(`tennis.match.end error: ${e.message}`);
     }
@@ -527,5 +633,7 @@ mp.events.add('tennis.match.cleanup', () => {
     }
     bindKeys(false);
     if (mp.busy.includes('tennis')) mp.busy.remove('tennis');
+    destroyBallObject();
+    tennisState.court = null;
     if (areaState.inside) mp.prompt.show('Нажмите <span>E</span>, чтобы открыть меню тенниса');
 });
