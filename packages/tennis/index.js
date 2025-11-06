@@ -35,6 +35,12 @@ const invites = new Map();
 const matches = new Map();
 const courtShapes = new Map();
 
+const RACKET_ATTACH = {
+    bone: 28422,
+    pos: { x: 0.48, y: -0.03, z: 0.01 },
+    rot: { x: -9.64, y: -79.56, z: 66.6 }
+};
+
 let notifications;
 let inviteTimer = null;
 let nextMatchId = 1;
@@ -239,14 +245,35 @@ class Match {
                 side,
                 nextServeTime: Date.now() + 1200,
                 lastSwing: 0,
-                moveSpeed: 3.2
+                moveSpeed: 3.2,
+                standing: false
             };
             try {
                 participant.racket = mp.objects.new(RACKET_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
                     dimension: this.dimension
                 });
-                const bone = ped.getBoneIndex(60309);
-                participant.racket.attachTo(ped.handle, bone, 0.02, 0.02, 0.0, -90.0, 0.0, 90.0, false, false, false, false, 2, true);
+                const bone = ped.getBoneIndex(RACKET_ATTACH.bone);
+                if (bone !== -1) {
+                    participant.racket.attachTo(
+                        ped.handle,
+                        bone,
+                        RACKET_ATTACH.pos.x,
+                        RACKET_ATTACH.pos.y,
+                        RACKET_ATTACH.pos.z,
+                        RACKET_ATTACH.rot.x,
+                        RACKET_ATTACH.rot.y,
+                        RACKET_ATTACH.rot.z,
+                        false,
+                        false,
+                        false,
+                        false,
+                        2,
+                        true
+                    );
+                } else {
+                    participant.racket.destroy();
+                    participant.racket = null;
+                }
             } catch (err) {
                 console.log('[TENNIS] NPC racket attach failed', err.message);
                 if (participant.racket && mp.objects.exists(participant.racket)) participant.racket.destroy();
@@ -267,11 +294,30 @@ class Match {
         this.ballObj = mp.objects.new(BALL_MODEL, position, {
             dimension: this.dimension
         });
+        try {
+            if (typeof this.ballObj.setCollision === 'function') this.ballObj.setCollision(false, false);
+        } catch {}
+        try {
+            if (typeof this.ballObj.freezePosition === 'function') this.ballObj.freezePosition(false);
+        } catch {}
     }
 
     updateBallObject() {
-        if (mp.objects.exists(this.ballObj)) {
-            this.ballObj.position = new mp.Vector3(this.ball.pos.x, this.ball.pos.y, this.ball.pos.z);
+        if (!mp.objects.exists(this.ballObj)) return;
+        const pos = new mp.Vector3(this.ball.pos.x, this.ball.pos.y, this.ball.pos.z);
+        try {
+            if (typeof this.ballObj.setCoordsNoOffset === 'function') {
+                this.ballObj.setCoordsNoOffset(pos.x, pos.y, pos.z);
+            } else {
+                this.ballObj.position = pos;
+            }
+        } catch {
+            this.ballObj.position = pos;
+        }
+        if (typeof this.ballObj.setVelocity === 'function') {
+            try {
+                this.ballObj.setVelocity(this.ball.vel.x, this.ball.vel.y, this.ball.vel.z);
+            } catch {}
         }
     }
 
@@ -339,7 +385,7 @@ class Match {
         if (this.finished) return;
         if (!this.ball.inPlay) {
             this.updateBallObject();
-            this.updateNpc(TICK_MS / 1000);
+            this.updateNpc();
             return;
         }
 
@@ -381,10 +427,10 @@ class Match {
             this.registerPoint(this.otherSide(side), 'Мяч остановился');
         }
 
-        this.updateNpc(dt);
+        this.updateNpc();
     }
 
-    updateNpc(dt) {
+    updateNpc() {
         if (!this.npcData) return;
         const npc = this.getNpc(this.npcData.side);
         if (!npc) return;
@@ -392,18 +438,36 @@ class Match {
         const side = this.npcData.side;
         const spawn = npc.spawn;
         const bounds = this.court.bounds;
-        const pos = ped.position;
+        const pos = vectorToObject(ped.position);
         const desiredX = clamp(this.ball.pos.x, bounds.minX + 1.0, bounds.maxX - 1.0);
-        const maxMove = this.npcData.moveSpeed * dt;
-        const dx = desiredX - pos.x;
-        const moveX = clamp(dx, -maxMove, maxMove);
-        const newX = pos.x + moveX;
         const baseY = spawn.y;
-        const yOffset = this.ball.inPlay ? clamp((this.ball.pos.y - baseY) * 0.2, -1.2, 1.2) : 0;
+        const yOffset = this.ball.inPlay ? clamp((this.ball.pos.y - baseY) * 0.18, -1.0, 1.0) : 0;
         const desiredY = clamp(baseY + yOffset, bounds.minY + 0.8, bounds.maxY - 0.8);
-        ped.position = new mp.Vector3(newX, desiredY, spawn.z);
-        const opponentSpawn = side === 'a' ? this.court.bSpawn : this.court.aSpawn;
-        ped.heading = computeHeading(ped.position, opponentSpawn);
+        const desiredPos = { x: desiredX, y: desiredY, z: spawn.z };
+        const dist = distanceBetween(pos, desiredPos);
+        const now = Date.now();
+
+        if (dist > 0.25) {
+            const needsNewCommand =
+                !this.npcData.lastMoveTarget ||
+                distanceBetween(this.npcData.lastMoveTarget, desiredPos) > 0.2 ||
+                now - (this.npcData.lastMoveCmd || 0) > 600;
+            if (needsNewCommand && typeof ped.taskGoStraightToCoord === 'function') {
+                ped.taskGoStraightToCoord(desiredPos.x, desiredPos.y, desiredPos.z, this.npcData.moveSpeed, -1, 0.0, 0.0);
+                this.npcData.lastMoveTarget = { ...desiredPos };
+                this.npcData.lastMoveCmd = now;
+            }
+            this.npcData.standing = false;
+        } else if (!this.npcData.standing && typeof ped.taskStandStill === 'function') {
+            ped.taskStandStill(400);
+            this.npcData.standing = true;
+            this.npcData.lastStandCmd = now;
+        }
+
+        if (dist <= 1.2) {
+            const opponentSpawn = side === 'a' ? this.court.bSpawn : this.court.aSpawn;
+            ped.heading = computeHeading(desiredPos, opponentSpawn);
+        }
 
         if (!this.ball.inPlay && this.serverSide === side) {
             if (Date.now() >= this.npcData.nextServeTime) {

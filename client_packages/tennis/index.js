@@ -34,8 +34,8 @@ let menuState = {
 let menusRegistered = false;
 
 if (mp.attachmentMngr) {
-    mp.attachmentMngr.register('tennis_racket', 'prop_tennis_rack_01', 'PH_R_Hand',
-        { x: 0.03, y: 0.015, z: 0.0 }, { x: -90.0, y: 0.0, z: 90.0 });
+    mp.attachmentMngr.register('tennis_racket', 'prop_tennis_rack_01', 28422,
+        { x: 0.48, y: -0.03, z: 0.01 }, { x: -9.64, y: -79.56, z: 66.6 });
 }
 
 function registerMenus() {
