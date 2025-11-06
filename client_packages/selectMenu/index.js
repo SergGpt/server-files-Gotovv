@@ -30,7 +30,12 @@ mp.events.add({
                     break;
             }
         }
-        
+
+        if (menuName === "tennisMain" || menuName === "tennisOpponents" || menuName === "tennisInvite") {
+            mp.events.call('tennis.menu.handle', menuName, eventName, e);
+            return;
+        }
+
         // TODO: Обработка других событий меню...
     },
 
