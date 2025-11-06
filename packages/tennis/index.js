@@ -487,8 +487,8 @@ class Match {
         if (this.ball.pos.z > this.court.center.z + 3.0) return;
 
         const npcPos = vectorToObject(ped.position);
-        const dist = distanceBetween(npcPos, this.ball.pos);
-        if (dist > 5.0) return;
+        const ballDist = distanceBetween(npcPos, this.ball.pos);
+        if (ballDist > 5.0) return;
         if (Date.now() - this.npcData.lastSwing < 700) return;
 
         const targetX = clamp(this.court.center.x + (Math.random() - 0.5) * (bounds.maxX - bounds.minX) * 0.6, bounds.minX + 1.2, bounds.maxX - 1.2);
