@@ -6,10 +6,10 @@ module.exports = {
     "/tennis": {
         access: 0,
         args: "",
-        description: "Информация о теннисных кортах",
+        description: "Подсказка по теннисной площадке",
         handler: (player) => {
             if (!player.character) return;
-            notifications.info(player, 'Используйте корты на пляже Венвуд и нажмите E для открытия меню.', 'Теннис');
+            notifications.info(player, 'Подойдите к корту на пляже Веспуччи и нажмите E, чтобы начать тренировку.', 'Теннис');
         }
     }
 };

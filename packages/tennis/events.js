@@ -13,27 +13,19 @@ module.exports = {
     },
     "playerExitColshape": (player, shape) => {
         if (!player.character || !shape || !shape.isTennisCourt) return;
-        tennis.onExitCourt(player, shape.courtId);
+        tennis.onExitCourt(player);
     },
-    "tennis.menu.open": (player) => {
-        tennis.openMenu(player);
+    "tennis.startNpc": (player) => {
+        tennis.startNpcMatch(player);
     },
-    "tennis.menu.action": (player, action, value) => {
-        tennis.handleMenuAction(player, action, value);
-    },
-    "tennis.invite.response": (player, accepted) => {
-        if (accepted) tennis.handleAccept(player);
-        else tennis.handleMenuAction(player, 'declineInvite');
-    },
-    "tennis.swing": (player, charge, aimX, aimY, aimZ) => {
-        if (!player.character) return;
-        tennis.handleSwing(player, charge, aimX, aimY, aimZ);
+    "tennis.hit": (player, power) => {
+        tennis.handlePlayerHit(player, power);
     },
     "playerQuit": (player) => {
         tennis.onPlayerQuit(player);
     },
     "playerDeath": (player) => {
-        if (!player.tennisMatch) return;
-        player.tennisMatch.stopByPlayer(player);
+        if (!player || !player.tennisMatch) return;
+        player.tennisMatch.stopForced('Матч завершён.');
     }
 };

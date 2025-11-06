@@ -1,39 +1,31 @@
 "use strict";
 
 const TICK_MS = 50;
-const INVITE_TIMEOUT = 30000;
-const NET_HEIGHT = 1.05;
-const GRAVITY = 9.81;
-const AIR_RESISTANCE = 0.991;
-const BOUNCE_FRICTION = 0.82;
-const GROUND_LEVEL_OFFSET = 0.02;
+const MATCH_POINT = 5;
+const HIT_TIMEOUT = 2500;
+const NPC_MISS_BASE = 0.18;
+const NPC_MISS_PER_RALLY = 0.08;
+const BALL_APEX_BASE = 2.2;
+const BALL_APEX_POWER = 0.6;
+const BALL_DURATION_BASE = 1500;
+const BALL_DURATION_POWER = 450;
+const TENNIS_BLIP = 122;
 
 const COURTS = [
     {
         id: 1,
-        name: "Vespucci Beach Court",
-        aSpawn: new mp.Vector3(-1159.114990234375, -1631.624755859375, 4.373704433441162),
-        bSpawn: new mp.Vector3(-1147.3255615234375, -1648.2315673828125, 4.37370491027832),
-        center: new mp.Vector3(-1153.2202758789062, -1639.9281616210938, 4.373704671859741),
-        bounds: {
-            minX: -1165.6,
-            maxX: -1141.0,
-            minY: -1654.5,
-            maxY: -1625.3,
-            netY: -1639.9281616210938
-        }
+        name: "Корт Веспуччи",
+        center: { x: -1153.22, y: -1639.93, z: 4.37 },
+        playerSpawn: { x: -1159.11, y: -1631.62, z: 4.37, heading: 215 },
+        npcSpawn: { x: -1147.33, y: -1648.23, z: 4.37, heading: 35 },
+        playerHit: { x: -1158.40, y: -1634.90, z: 4.37 },
+        npcHit: { x: -1148.00, y: -1645.60, z: 4.37 }
     }
 ];
 
-const NET_MODEL = mp.joaat("prop_tennis_net_01");
 const BALL_MODEL = mp.joaat("prop_tennis_ball");
 const RACKET_MODEL = mp.joaat("prop_tennis_rack_01");
 const NPC_MODEL = mp.joaat("s_m_y_airworker");
-const TENNIS_BLIP = 122;
-
-const invites = new Map();
-const matches = new Map();
-const courtShapes = new Map();
 
 const RACKET_ATTACH = {
     bone: 57005,
@@ -41,56 +33,21 @@ const RACKET_ATTACH = {
     rot: { x: -90.0, y: 0.0, z: 0.0 }
 };
 
-let notifications;
-let inviteTimer = null;
+const matches = new Map();
 let nextMatchId = 1;
+let notifications = null;
+let tickTimer = null;
+let courtShapes = [];
 
-const vectorToObject = (vec) => ({ x: vec.x, y: vec.y, z: vec.z });
-const clonePosition = (pos) => ({ x: pos.x, y: pos.y, z: pos.z });
-
-function toVector3(obj) {
-    return new mp.Vector3(obj.x, obj.y, obj.z);
+function vectorToObject(vec) {
+    return { x: vec.x, y: vec.y, z: vec.z };
 }
 
-function distanceBetween(a, b) {
+function distance3(a, b) {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
-    const dz = a.z - b.z;
+    const dz = (a.z || 0) - (b.z || 0);
     return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-function normalise(vec) {
-    const length = Math.sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
-    if (length <= 0.0001) return { x: 0, y: 0, z: 0 };
-    return { x: vec.x / length, y: vec.y / length, z: vec.z / length };
-}
-
-function clamp(value, min, max) {
-    return Math.min(Math.max(value, min), max);
-}
-
-function courtById(id) {
-    return COURTS.find(c => c.id === id) || null;
-}
-
-function findNearestCourt(position, maxDist = 80) {
-    let result = null;
-    let best = maxDist;
-    COURTS.forEach(court => {
-        const dist = distanceBetween(vectorToObject(position), vectorToObject(court.center));
-        if (dist < best) {
-            best = dist;
-            result = court;
-        }
-    });
-    return result;
-}
-
-function isCourtBusy(courtId) {
-    for (const match of matches.values()) {
-        if (!match.finished && match.court.id === courtId) return true;
-    }
-    return false;
 }
 
 function computeHeading(from, to) {
@@ -100,879 +57,381 @@ function computeHeading(from, to) {
     return heading < 0 ? heading + 360 : heading;
 }
 
-function resolvePlayerName(player, fallback) {
-    if (player && player.character && player.character.name) return player.character.name;
-    if (player && player.name) return player.name;
-    return fallback;
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
 }
 
-function cleanInvites() {
-    const now = Date.now();
-    invites.forEach((invite, targetId) => {
-        const target = mp.players.at(targetId);
-        const from = mp.players.at(invite.fromId);
-        const expired = invite.expires <= now;
-        if (!target || !mp.players.exists(target) || !target.character || (from && !mp.players.exists(from))) {
-            invites.delete(targetId);
-            if (target && mp.players.exists(target)) target.call('tennis.invite.hide');
-            return;
+function ensureTick() {
+    if (tickTimer) return;
+    tickTimer = setInterval(() => {
+        matches.forEach(match => match.tick(TICK_MS));
+    }, TICK_MS);
+}
+
+class BallFlight {
+    constructor(match) {
+        this.match = match;
+        this.active = false;
+        this.start = null;
+        this.end = null;
+        this.elapsed = 0;
+        this.duration = BALL_DURATION_BASE;
+        this.apex = BALL_APEX_BASE;
+        this.targetSide = null;
+        this.currentPos = match.court ? { ...match.court.center } : { x: 0, y: 0, z: 0 };
+    }
+
+    launch(fromSide, toSide, power = 0.5) {
+        const startPos = this.match.getHitPosition(fromSide);
+        const endPos = this.match.getReceivePosition(toSide);
+        const offsetX = (Math.random() - 0.5) * 1.4;
+        const offsetY = (Math.random() - 0.5) * 1.6;
+        const start = {
+            x: startPos.x,
+            y: startPos.y,
+            z: startPos.z + 0.9
+        };
+        const end = {
+            x: endPos.x + offsetX,
+            y: endPos.y + offsetY,
+            z: endPos.z + 0.35
+        };
+        this.start = start;
+        this.end = end;
+        this.elapsed = 0;
+        this.duration = clamp(BALL_DURATION_BASE - power * BALL_DURATION_POWER, 900, 1900);
+        this.apex = BALL_APEX_BASE + power * BALL_APEX_POWER;
+        this.targetSide = toSide;
+        this.active = true;
+        this.updatePosition(0);
+    }
+
+    updatePosition(delta) {
+        if (!this.active || !this.start || !this.end) return;
+        this.elapsed += delta;
+        let t = this.duration <= 0 ? 1 : this.elapsed / this.duration;
+        if (t >= 1) t = 1;
+        const inv = 1 - t;
+        const x = this.start.x * inv + this.end.x * t;
+        const y = this.start.y * inv + this.end.y * t;
+        const baseZ = this.start.z * inv + this.end.z * t;
+        const z = baseZ + this.apex * Math.sin(Math.PI * t);
+        this.currentPos = { x, y, z };
+        const obj = this.match.ballObj;
+        if (obj && mp.objects.exists(obj)) {
+            obj.position = new mp.Vector3(x, y, z);
         }
-        if (expired) {
-            invites.delete(targetId);
-            target.call('tennis.invite.hide');
-            notifications.info(target, 'Приглашение на теннис истекло', 'Теннис');
-            if (from && mp.players.exists(from)) {
-                notifications.info(from, `${target.character.name} не ответил на приглашение`, 'Теннис');
-            }
+        if (t >= 1) {
+            this.active = false;
+            this.match.onBallArrived(this.targetSide);
         }
-    });
+    }
 }
 
 class Match {
-    constructor(court, sideA, sideB) {
+    constructor(player, court) {
         this.id = nextMatchId++;
+        this.player = player;
         this.court = court;
-        this.dimension = 15000 + this.id;
-        this.participants = {
-            a: sideA,
-            b: sideB
-        };
-        this.points = { a: 0, b: 0 };
-        this.advantage = null;
-        const npcOnB = sideB && sideB.type === 'npc';
-        const playerOnA = sideA && sideA.type === 'player';
-        this.serverSide = npcOnB && playerOnA ? 'b' : 'a';
-        this.finished = false;
-        this.playerStates = new Map();
-        this.ball = {
-            pos: vectorToObject(court.center),
-            prevPos: vectorToObject(court.center),
-            vel: { x: 0, y: 0, z: 0 },
-            inPlay: false,
-            lastHit: null,
-            lastHitTime: 0,
-            lastBounceSide: null,
-            bounceCount: 0
-        };
+        this.dimension = 17000 + this.id;
+        this.score = { player: 0, npc: 0 };
+        this.rally = 0;
+        this.running = false;
+        this.awaitingHit = false;
+        this.hitDeadline = 0;
+        this.npcPed = null;
+        this.npcRacket = null;
         this.ballObj = null;
-        this.netObj = null;
-        this.interval = null;
-        this.npcData = null;
-        this.lastBallSync = 0;
-    }
-
-    otherSide(side) {
-        return side === 'a' ? 'b' : 'a';
-    }
-
-    getParticipant(side) {
-        return this.participants[side] || null;
-    }
-
-    getPlayer(side) {
-        const participant = this.getParticipant(side);
-        if (!participant || participant.type !== 'player') return null;
-        const player = participant.player;
-        return player && mp.players.exists(player) ? player : null;
-    }
-
-    getNpc(side) {
-        const participant = this.getParticipant(side);
-        if (!participant || participant.type !== 'npc') return null;
-        if (!participant.ped || !mp.peds.exists(participant.ped)) return null;
-        return participant;
-    }
-
-    getDisplayName(side) {
-        const participant = this.getParticipant(side);
-        if (!participant) return side === 'a' ? 'Игрок A' : 'Игрок B';
-        if (participant.type === 'player') {
-            const player = this.getPlayer(side);
-            if (player) return resolvePlayerName(player, side === 'a' ? 'Игрок A' : 'Игрок B');
-            return participant.cachedName || (side === 'a' ? 'Игрок A' : 'Игрок B');
-        }
-        return participant.name || 'NPC';
+        this.ballFlight = new BallFlight(this);
+        this.backupState = null;
+        this.serveSide = 'npc';
     }
 
     start() {
+        if (!this.player || !mp.players.exists(this.player)) return;
+        ensureTick();
+        this.running = true;
+        this.player.tennisMatch = this;
         matches.set(this.id, this);
-        this.prepareParticipant('a', this.participants.a, this.court.aSpawn, this.court.bSpawn);
-        this.prepareParticipant('b', this.participants.b, this.court.bSpawn, this.court.aSpawn);
-        this.spawnNet();
+        this.prepareCourt();
+        this.spawnNpc();
         this.spawnBall();
-        this.resetForServe();
-        this.broadcastMatchStart();
-        const server = this.serverSide === 'a' ? this.getDisplayName('a') : this.getDisplayName('b');
-        this.broadcastScore(`Матч начался! Подаёт ${server}.`);
-        this.interval = setInterval(() => {
-            try {
-                this.update();
-            } catch (e) {
-                console.log('[TENNIS] Tick error', e);
-                this.finish(null, 'Ошибка матча');
-            }
-        }, TICK_MS);
+        this.sendScore();
+        this.message('Тренировка началась. Попробуйте выиграть розыгрыш до пяти очков.', true);
+        this.player.call('tennis:matchStart', [this.court.name]);
+        this.launchServe(this.serveSide);
     }
 
-    prepareParticipant(side, participant, spawn, opponentSpawn) {
-        if (!participant) return;
-        if (participant.type === 'player') {
-            const player = participant.player;
-            if (!player || !mp.players.exists(player)) return;
-            participant.cachedName = resolvePlayerName(player, side === 'a' ? 'Игрок A' : 'Игрок B');
-            this.playerStates.set(player.id, {
-                position: clonePosition(player.position),
-                heading: player.heading,
-                dimension: player.dimension
-            });
-            const heading = computeHeading(spawn, opponentSpawn);
-            player.removeAllWeapons();
-            player.position = new mp.Vector3(spawn.x, spawn.y, spawn.z);
-            player.dimension = this.dimension;
-            player.heading = heading;
-            player.tennisMatch = this;
-            player.tennisSide = side;
-            if (typeof player.addAttachment === 'function') {
-                player.addAttachment('tennis_racket');
-            }
-        } else if (participant.type === 'npc') {
-            const heading = computeHeading(spawn, opponentSpawn);
-            const ped = mp.peds.new(participant.model || NPC_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
-                dynamic: true
-            });
-            ped.dimension = this.dimension;
-            ped.heading = heading;
-            participant.ped = ped;
-            participant.spawn = clonePosition(spawn);
-            participant.heading = heading;
-            participant.name = participant.name || 'Тренер NPC';
-            this.npcData = {
-                side,
-                nextServeTime: Date.now() + 1200,
-                lastSwing: 0,
-                moveSpeed: 3.2,
-                standing: false
-            };
-            participant.attachTimer = setTimeout(() => {
-                try {
-                    if (!participant.ped || !mp.peds.exists(participant.ped)) return;
-                    const bone = participant.ped.getBoneIndex(RACKET_ATTACH.bone);
-                    if (bone === -1) return;
-                    if (participant.racket && mp.objects.exists(participant.racket)) {
-                        participant.racket.destroy();
-                    }
-                    participant.racket = mp.objects.new(RACKET_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
-                        dimension: this.dimension
-                    });
-                    participant.racket.attachTo(
-                        participant.ped.handle,
-                        bone,
-                        RACKET_ATTACH.pos.x,
-                        RACKET_ATTACH.pos.y,
-                        RACKET_ATTACH.pos.z,
-                        RACKET_ATTACH.rot.x,
-                        RACKET_ATTACH.rot.y,
-                        RACKET_ATTACH.rot.z,
-                        false,
-                        false,
-                        false,
-                        false,
-                        2,
-                        true
-                    );
-                } catch (err) {
-                    console.log('[TENNIS] NPC racket attach failed', err.message);
-                    if (participant.racket && mp.objects.exists(participant.racket)) participant.racket.destroy();
-                    participant.racket = null;
-                }
-            }, 150);
+    prepareCourt() {
+        const spawn = this.court.playerSpawn;
+        this.backupState = {
+            dimension: this.player.dimension,
+            position: vectorToObject(this.player.position),
+            heading: this.player.heading
+        };
+        this.player.dimension = this.dimension;
+        this.player.position = new mp.Vector3(spawn.x, spawn.y, spawn.z);
+        const heading = spawn.heading || computeHeading(spawn, this.court.center);
+        this.player.heading = heading;
+        if (typeof this.player.addAttachment === 'function') {
+            this.player.addAttachment('tennis_racket');
         }
+        this.player.call('prompt.hide');
     }
 
-    spawnNet() {
-        const position = new mp.Vector3(this.court.center.x, this.court.bounds.netY, this.court.center.z);
-        this.netObj = mp.objects.new(NET_MODEL, position, {
+    spawnNpc() {
+        const spawn = this.court.npcSpawn;
+        this.npcPed = mp.peds.new(NPC_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
+            dimension: this.dimension,
+            dynamic: true
+        });
+        if (this.npcPed) {
+            this.npcPed.heading = spawn.heading || computeHeading(spawn, this.court.center);
+            this.npcPed.setVariable('tennisTrainer', true);
+            this.npcPed.freezePosition(true);
+            try { this.npcPed.setInvincible(true); } catch (e) {}
+        }
+        this.npcRacket = mp.objects.new(RACKET_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
             dimension: this.dimension
         });
+        setTimeout(() => {
+            if (!this.npcPed || !mp.peds.exists(this.npcPed)) return;
+            if (!this.npcRacket || !mp.objects.exists(this.npcRacket)) return;
+            try {
+                this.npcRacket.attachTo(this.npcPed.handle, RACKET_ATTACH.bone,
+                    RACKET_ATTACH.pos.x, RACKET_ATTACH.pos.y, RACKET_ATTACH.pos.z,
+                    RACKET_ATTACH.rot.x, RACKET_ATTACH.rot.y, RACKET_ATTACH.rot.z,
+                    false, false, false, false, 2, true);
+            } catch (e) {}
+        }, 250);
     }
 
     spawnBall() {
-        const position = new mp.Vector3(this.court.center.x, this.court.center.y, this.court.center.z + 1.0);
-        this.ballObj = mp.objects.new(BALL_MODEL, position, {
+        const center = this.court.center;
+        this.ballObj = mp.objects.new(BALL_MODEL, new mp.Vector3(center.x, center.y, center.z + 1.0), {
             dimension: this.dimension
         });
-        try {
-            if (typeof this.ballObj.setCollision === 'function') this.ballObj.setCollision(false, false);
-        } catch {}
-        try {
-            if (typeof this.ballObj.freezePosition === 'function') this.ballObj.freezePosition(false);
-        } catch {}
     }
 
-    updateBallObject() {
-        if (!mp.objects.exists(this.ballObj)) return;
-        const pos = new mp.Vector3(this.ball.pos.x, this.ball.pos.y, this.ball.pos.z);
-        try {
-            if (typeof this.ballObj.setCoordsNoOffset === 'function') {
-                this.ballObj.setCoordsNoOffset(pos.x, pos.y, pos.z);
-            } else {
-                this.ballObj.position = pos;
-            }
-        } catch {
-            this.ballObj.position = pos;
-        }
-        if (typeof this.ballObj.setVelocity === 'function') {
-            try {
-                this.ballObj.setVelocity(this.ball.vel.x, this.ball.vel.y, this.ball.vel.z);
-            } catch {}
-        }
+    getHitPosition(side) {
+        return side === 'player' ? this.court.playerHit : this.court.npcHit;
     }
 
-    broadcast(event, payload) {
-        ['a', 'b'].forEach(side => {
-            const player = this.getPlayer(side);
-            if (player) {
-                player.call(event, [JSON.stringify(payload)]);
-            }
-        });
+    getReceivePosition(side) {
+        if (side === 'player') return this.court.playerHit;
+        return this.court.npcHit;
     }
 
-    broadcastMatchStart() {
-        ['a', 'b'].forEach(side => {
-            const player = this.getPlayer(side);
-            if (!player) return;
-            const opponentPart = this.getParticipant(this.otherSide(side));
-            const payload = {
-                matchId: this.id,
-                side,
-                court: {
-                    id: this.court.id,
-                    name: this.court.name,
-                    bounds: this.court.bounds,
-                    center: vectorToObject(this.court.center)
-                },
-                opponent: this.getDisplayName(this.otherSide(side)),
-                opponentType: opponentPart ? opponentPart.type : 'player',
-                serverSide: this.serverSide,
-                points: this.points,
-                players: {
-                    a: this.getDisplayName('a'),
-                    b: this.getDisplayName('b')
-                }
-            };
-            player.call('tennis.match.start', [JSON.stringify(payload)]);
-        });
+    launchServe(side) {
+        this.awaitingHit = false;
+        this.hitDeadline = 0;
+        this.ballFlight.launch(side, side === 'player' ? 'npc' : 'player', side === 'player' ? 0.7 : 0.4);
     }
 
-    broadcastScore(reason, winnerSide = null) {
-        const payload = {
-            matchId: this.id,
-            reason,
-            serverSide: this.serverSide,
-            points: this.points,
-            players: {
-                a: this.getDisplayName('a'),
-                b: this.getDisplayName('b')
-            },
-            advantage: this.advantage,
-            finished: winnerSide != null,
-            winnerSide
-        };
-        this.broadcast('tennis.score.update', payload);
-    }
-
-    broadcastBallState(force = false) {
-        const now = Date.now();
-        if (!force && now - this.lastBallSync < TICK_MS) return;
-        const payload = {
-            pos: { x: this.ball.pos.x, y: this.ball.pos.y, z: this.ball.pos.z },
-            vel: { x: this.ball.vel.x, y: this.ball.vel.y, z: this.ball.vel.z },
-            inPlay: this.ball.inPlay
-        };
-        this.broadcast('tennis.ball.sync', payload);
-        this.lastBallSync = now;
-    }
-
-    sendPointNotifications(winnerSide, reason) {
-        const winner = this.getPlayer(winnerSide);
-        const loser = this.getPlayer(this.otherSide(winnerSide));
-        if (winner) notifications.success(winner, `Очко за вами (${reason})`, 'Теннис');
-        if (loser) notifications.warning(loser, `Очко сопернику (${reason})`, 'Теннис');
-    }
-
-    update() {
-        if (this.finished) return;
-        if (!this.ball.inPlay) {
-            this.updateBallObject();
-            this.broadcastBallState();
-            this.updateNpc();
-            return;
-        }
-
-        this.ball.vel.x *= AIR_RESISTANCE;
-        this.ball.vel.y *= AIR_RESISTANCE;
-
-        const dt = TICK_MS / 1000;
-        const prev = { ...this.ball.pos };
-        this.ball.prevPos = prev;
-
-        this.ball.vel.z -= GRAVITY * dt;
-        this.ball.pos.x += this.ball.vel.x * dt;
-        this.ball.pos.y += this.ball.vel.y * dt;
-        this.ball.pos.z += this.ball.vel.z * dt;
-
-        if (this.checkNet(prev)) return;
-        if (this.checkOut()) return;
-
-        const groundLevel = this.court.center.z + GROUND_LEVEL_OFFSET;
-        if (this.ball.pos.z <= groundLevel) {
-            if (this.ball.vel.z < 0) {
-                this.ball.pos.z = groundLevel;
-                this.ball.vel.z = -this.ball.vel.z * 0.55;
-                this.ball.vel.x *= BOUNCE_FRICTION;
-                this.ball.vel.y *= BOUNCE_FRICTION;
-                this.handleBounce();
-                if (this.finished) return;
-            } else {
-                this.ball.pos.z = groundLevel;
-            }
-        }
-
-        this.updateBallObject();
-        this.broadcastBallState();
-
-        if (Math.abs(this.ball.vel.x) < 0.05) this.ball.vel.x = 0;
-        if (Math.abs(this.ball.vel.y) < 0.05) this.ball.vel.y = 0;
-        if (Math.abs(this.ball.vel.z) < 0.05 && this.ball.pos.z <= groundLevel + 0.05) {
-            const side = this.ball.lastBounceSide || (this.ball.pos.y >= this.court.bounds.netY ? 'a' : 'b');
-            this.registerPoint(this.otherSide(side), 'Мяч остановился');
-        }
-
-        this.updateNpc();
-    }
-
-    updateNpc() {
-        if (!this.npcData) return;
-        const npc = this.getNpc(this.npcData.side);
-        if (!npc) return;
-        const ped = npc.ped;
-        const side = this.npcData.side;
-        const spawn = npc.spawn;
-        const bounds = this.court.bounds;
-        const pos = vectorToObject(ped.position);
-        const desiredX = clamp(this.ball.pos.x, bounds.minX + 1.0, bounds.maxX - 1.0);
-        const baseY = spawn.y;
-        const yOffset = this.ball.inPlay ? clamp((this.ball.pos.y - baseY) * 0.18, -1.0, 1.0) : 0;
-        const desiredY = clamp(baseY + yOffset, bounds.minY + 0.8, bounds.maxY - 0.8);
-        const desiredPos = { x: desiredX, y: desiredY, z: spawn.z };
-        const dist = distanceBetween(pos, desiredPos);
-        const now = Date.now();
-
-        if (dist > 0.25) {
-            const needsNewCommand =
-                !this.npcData.lastMoveTarget ||
-                distanceBetween(this.npcData.lastMoveTarget, desiredPos) > 0.2 ||
-                now - (this.npcData.lastMoveCmd || 0) > 600;
-            if (needsNewCommand && typeof ped.taskGoStraightToCoord === 'function') {
-                ped.taskGoStraightToCoord(desiredPos.x, desiredPos.y, desiredPos.z, this.npcData.moveSpeed, -1, 0.0, 0.0);
-                this.npcData.lastMoveTarget = { ...desiredPos };
-                this.npcData.lastMoveCmd = now;
-            }
-            this.npcData.standing = false;
-        } else if (!this.npcData.standing && typeof ped.taskStandStill === 'function') {
-            ped.taskStandStill(400);
-            this.npcData.standing = true;
-            this.npcData.lastStandCmd = now;
-        }
-
-        if (dist <= 1.2) {
-            const opponentSpawn = side === 'a' ? this.court.bSpawn : this.court.aSpawn;
-            ped.heading = computeHeading(desiredPos, opponentSpawn);
-        }
-
-        if (!this.ball.inPlay && this.serverSide === side) {
-            if (Date.now() >= this.npcData.nextServeTime) {
-                const aimY = side === 'a' ? -1 : 1;
-                this.strike(ped, side, 0.75, 0, aimY, 0);
-                this.npcData.nextServeTime = Date.now() + 2500;
-                this.npcData.lastSwing = Date.now();
-            }
-            return;
-        }
-
-        if (!this.ball.inPlay) return;
-        if (Date.now() - this.ball.lastHitTime < 250) return;
-
-        const ballSide = this.ball.pos.y >= bounds.netY ? 'a' : 'b';
-        if (ballSide !== side) return;
-        if (this.ball.pos.z > this.court.center.z + 3.0) return;
-
-        const npcPos = vectorToObject(ped.position);
-        const ballDist = distanceBetween(npcPos, this.ball.pos);
-        if (ballDist > 5.0) return;
-        if (Date.now() - this.npcData.lastSwing < 700) return;
-
-        const targetX = clamp(this.court.center.x + (Math.random() - 0.5) * (bounds.maxX - bounds.minX) * 0.6, bounds.minX + 1.2, bounds.maxX - 1.2);
-        const targetY = side === 'a' ? bounds.minY + 1.4 : bounds.maxY - 1.4;
-        const aim = normalise({
-            x: targetX - this.ball.pos.x,
-            y: targetY - this.ball.pos.y,
-            z: 0
-        });
-        const power = 0.6 + Math.random() * 0.5;
-        this.strike(ped, side, power, aim.x, aim.y, aim.z);
-        this.npcData.lastSwing = Date.now();
-        this.broadcast('tennis.npc.swing', { side });
-    }
-
-    checkNet(prev) {
-        const netY = this.court.bounds.netY;
-        const from = prev.y - netY;
-        const to = this.ball.pos.y - netY;
-        if (from === 0 && to === 0) return false;
-        if ((from > 0 && to < 0) || (from < 0 && to > 0) || from === 0 || to === 0) {
-            if (this.ball.pos.z < this.court.center.z + NET_HEIGHT) {
-                const winner = this.otherSide(this.ball.lastHit || this.serverSide);
-                this.registerPoint(winner, 'Соперник попал в сетку');
-                return true;
-            }
-        }
-        return false;
-    }
-
-    checkOut() {
-        const { minX, maxX, minY, maxY } = this.court.bounds;
-        if (this.ball.pos.x < minX || this.ball.pos.x > maxX || this.ball.pos.y < minY || this.ball.pos.y > maxY) {
-            const winner = this.otherSide(this.ball.lastHit || this.serverSide);
-            this.registerPoint(winner, 'Аут');
-            return true;
-        }
-        return false;
-    }
-
-    getServePosition(entity, side) {
-        const origin = vectorToObject(entity.position);
-        const offsetY = side === 'a' ? 0.75 : -0.75;
-        return {
-            x: origin.x,
-            y: origin.y + offsetY,
-            z: this.court.center.z + 1.05
-        };
-    }
-
-    strike(entity, side, charge, aimX, aimY, aimZ) {
-        const power = clamp(Number(charge) || 0, 0.15, 1.4);
-        let aim = normalise({ x: aimX, y: aimY, z: aimZ });
-        if (Math.abs(aim.x) < 0.001 && Math.abs(aim.y) < 0.001) {
-            aim = { x: 0, y: side === 'a' ? -1 : 1, z: 0 };
-        }
-        aim.y = Math.abs(aim.y) * (side === 'a' ? -1 : 1);
-
-        const isServe = !this.ball.inPlay;
-        const baseSpeed = isServe ? 14 : 17;
-        const speed = baseSpeed + power * 8.5;
-        const vertical = isServe ? 6 + power * 3 : 5 + power * 4.5;
-
-        if (isServe && entity) {
-            const servePos = this.getServePosition(entity, side);
-            this.ball.pos = servePos;
-        }
-
-        this.ball.inPlay = true;
-        this.ball.lastHit = side;
-        this.ball.lastHitTime = Date.now();
-        this.ball.lastBounceSide = null;
-        this.ball.bounceCount = 0;
-        this.ball.vel = {
-            x: aim.x * speed,
-            y: aim.y * speed,
-            z: vertical
-        };
-        this.updateBallObject();
-        this.broadcastBallState(true);
-    }
-
-    serve(entity, side, charge, aimX, aimY, aimZ) {
-        this.strike(entity, side, charge, aimX, aimY, aimZ);
-    }
-
-    handleSwing(player, charge, aimX, aimY, aimZ) {
-        if (this.finished) return;
-        const side = player.tennisSide;
-        if (!side) return;
-
-        const now = Date.now();
-        if (this.ball.lastHit === side && now - this.ball.lastHitTime < 350) return;
-
-        if (!this.ball.inPlay) {
-            if (side !== this.serverSide) {
-                notifications.warning(player, 'Сейчас подаёт соперник', 'Теннис');
-                return;
-            }
-            this.serve(player, side, charge, aimX, aimY, aimZ);
-            return;
-        }
-
-        const playerPos = vectorToObject(player.position);
-        const dist = distanceBetween(playerPos, this.ball.pos);
-        if (dist > 4.5) {
-            notifications.warning(player, 'Мяч слишком далеко', 'Теннис');
-            return;
-        }
-
-        const ballSide = this.ball.pos.y >= this.court.bounds.netY ? 'a' : 'b';
-        if (ballSide !== side && (this.ball.pos.z - this.court.center.z) < 0.6) {
-            notifications.warning(player, 'Дождитесь пока мяч перелетит сетку', 'Теннис');
-            return;
-        }
-
-        this.strike(player, side, charge, aimX, aimY, aimZ);
-    }
-
-    registerPoint(winnerSide, reason) {
-        if (this.finished) return;
-        this.sendPointNotifications(winnerSide, reason);
-
-        const loserSide = this.otherSide(winnerSide);
-        this.points[winnerSide] += 1;
-
-        if (this.points[winnerSide] >= 4 && this.points[winnerSide] - this.points[loserSide] >= 2) {
-            this.finish(winnerSide, reason);
-            return;
-        }
-
-        if (this.points[winnerSide] >= 3 && this.points[loserSide] >= 3) {
-            if (this.points[winnerSide] === this.points[loserSide]) {
-                this.advantage = null;
-            } else if (this.points[winnerSide] > this.points[loserSide]) {
-                this.advantage = winnerSide;
-            }
+    onBallArrived(side) {
+        if (!this.running) return;
+        if (side === 'player') {
+            this.awaitingHit = true;
+            this.hitDeadline = Date.now() + HIT_TIMEOUT;
+            this.player.call('tennis:awaitHit', [this.hitDeadline]);
+            this.message('Зажмите и отпустите ЛКМ, чтобы ударить по мячу.');
         } else {
-            this.advantage = null;
+            setTimeout(() => this.npcHit(), 300);
         }
-
-        this.swapServer();
-        this.resetForServe();
-        this.broadcastScore(reason);
     }
 
-    swapServer() {
-        this.serverSide = this.otherSide(this.serverSide);
-    }
-
-    resetForServe() {
-        this.ball.inPlay = false;
-        this.ball.lastHit = null;
-        this.ball.lastBounceSide = null;
-        this.ball.bounceCount = 0;
-        this.ball.pos = vectorToObject(this.court.center);
-        this.ball.vel = { x: 0, y: 0, z: 0 };
-        this.updateBallObject();
-        this.broadcastBallState(true);
-        if (this.npcData && this.npcData.side === this.serverSide) {
-            this.npcData.nextServeTime = Date.now() + 1400;
-        }
-        this.broadcast('tennis.state.update', { serverSide: this.serverSide });
-    }
-
-    handleBounce() {
-        if (this.finished) return;
-        const side = this.ball.pos.y >= this.court.bounds.netY ? 'a' : 'b';
-        if (this.ball.lastBounceSide === side) {
-            this.ball.bounceCount += 1;
-        } else {
-            this.ball.lastBounceSide = side;
-            this.ball.bounceCount = 1;
-        }
-
-        if (this.ball.lastHit === side && this.ball.bounceCount === 1) {
-            this.registerPoint(this.otherSide(side), 'Мяч приземлился на вашей стороне');
+    npcHit() {
+        if (!this.running) return;
+        if (Math.random() < NPC_MISS_BASE + this.rally * NPC_MISS_PER_RALLY) {
+            this.awardPoint('player', 'Тренер ошибся.');
             return;
         }
+        this.rally += 1;
+        this.ballFlight.launch('npc', 'player', 0.45 + Math.random() * 0.25);
+    }
 
-        if (this.ball.bounceCount > 1) {
-            this.registerPoint(this.otherSide(side), 'Двойной отскок');
+    handlePlayerHit(player, rawPower) {
+        if (!this.running || player !== this.player) return;
+        if (!this.awaitingHit) return;
+        const power = clamp(Number(rawPower) || 0, 0, 1);
+        const ballPos = this.ballFlight.currentPos;
+        const playerPos = vectorToObject(this.player.position);
+        const dist = distance3(ballPos, playerPos);
+        this.awaitingHit = false;
+        this.player.call('tennis:awaitHit', [0]);
+        if (dist > 3.2) {
+            this.awardPoint('npc', 'Вы промахнулись по мячу.');
+            return;
+        }
+        this.rally += 1;
+        this.ballFlight.launch('player', 'npc', 0.5 + power * 0.5);
+    }
+
+    tick(delta) {
+        if (!this.running) return;
+        this.ballFlight.updatePosition(delta);
+        if (this.awaitingHit && Date.now() > this.hitDeadline) {
+            this.awaitingHit = false;
+            this.player.call('tennis:awaitHit', [0]);
+            this.awardPoint('npc', 'Вы не успели ударить по мячу.');
         }
     }
 
-    stopByPlayer(player) {
-        if (this.finished) return;
-        const side = player.tennisSide;
-        const winner = this.otherSide(side);
-        this.finish(winner, `${resolvePlayerName(player, 'Игрок')} покинул матч`);
-    }
-
-    finish(winnerSide, reason) {
-        if (this.finished) return;
-        this.finished = true;
-        clearInterval(this.interval);
-        this.interval = null;
-
-        if (winnerSide) {
-            this.broadcastScore(reason, winnerSide);
+    awardPoint(winner, reason = null) {
+        if (!this.running) return;
+        if (winner === 'player') this.score.player += 1;
+        else this.score.npc += 1;
+        this.rally = 0;
+        if (reason) this.message(reason, true);
+        this.sendScore();
+        if (this.score.player >= MATCH_POINT || this.score.npc >= MATCH_POINT) {
+            const playerWon = this.score.player > this.score.npc;
+            this.finish(playerWon, playerWon ? 'Вы выиграли тренировку!' : 'Тренер оказался сильнее.');
+            return;
         }
-        ['a', 'b'].forEach(side => {
-            const player = this.getPlayer(side);
-            if (player) {
-                player.call('tennis.match.end', [JSON.stringify({ winnerSide, reason })]);
-            }
-        });
-
-        setTimeout(() => this.stop(), 1500);
+        this.serveSide = winner === 'player' ? 'player' : 'npc';
+        setTimeout(() => {
+            if (!this.running) return;
+            this.launchServe(this.serveSide);
+        }, 600);
     }
 
-    stop() {
-        if (mp.objects.exists(this.ballObj)) this.ballObj.destroy();
-        if (mp.objects.exists(this.netObj)) this.netObj.destroy();
+    sendScore() {
+        this.player.call('tennis:score', [this.score.player, this.score.npc]);
+        this.message(`Счёт ${this.score.player} : ${this.score.npc}`);
+    }
 
-        ['a', 'b'].forEach(side => {
-            const participant = this.getParticipant(side);
-            if (!participant) return;
-            if (participant.type === 'player') {
-                const player = this.getPlayer(side);
-                if (!player) return;
-                const state = this.playerStates.get(player.id);
-                if (state) {
-                    player.dimension = state.dimension;
-                    player.position = toVector3(state.position);
-                    player.heading = state.heading;
-                }
-                if (typeof player.addAttachment === 'function') {
-                    player.addAttachment('tennis_racket', true);
-                }
-                player.tennisMatch = null;
-                player.tennisSide = null;
-                player.call('tennis.match.cleanup');
-            } else if (participant.type === 'npc') {
-                if (participant.attachTimer) {
-                    clearTimeout(participant.attachTimer);
-                    participant.attachTimer = null;
-                }
-                if (participant.racket && mp.objects.exists(participant.racket)) {
-                    participant.racket.destroy();
-                }
-                if (participant.ped && mp.peds.exists(participant.ped)) {
-                    participant.ped.destroy();
-                }
-            }
-        });
+    message(text, notify = false) {
+        if (!this.player || !mp.players.exists(this.player)) return;
+        if (notify && notifications) notifications.info(this.player, text, 'Теннис');
+        this.player.call('tennis:message', [text]);
+    }
 
+    finish(playerWon, reason) {
+        if (!this.running) return;
+        this.running = false;
+        this.player.call('tennis:matchEnd', [playerWon, reason]);
+        this.cleanup();
+    }
+
+    stopForced(reason) {
+        if (!this.running) return;
+        this.player.call('tennis:matchEnd', [false, reason || 'Матч завершён.']);
+        this.cleanup();
+    }
+
+    cleanup() {
+        this.running = false;
+        this.awaitingHit = false;
+        this.hitDeadline = 0;
         matches.delete(this.id);
+        if (this.player && mp.players.exists(this.player)) {
+            const player = this.player;
+            if (typeof this.player.addAttachment === 'function') {
+                this.player.addAttachment('tennis_racket', true);
+            }
+            if (this.backupState) {
+                this.player.dimension = this.backupState.dimension;
+                this.player.position = new mp.Vector3(this.backupState.position.x, this.backupState.position.y, this.backupState.position.z);
+                this.player.heading = this.backupState.heading;
+            }
+            this.player.tennisMatch = null;
+            setTimeout(() => {
+                if (player && mp.players.exists(player)) {
+                    player.call('tennis:showPrompt', [true, this.court.name]);
+                }
+            }, 300);
+        }
+        if (this.ballObj && mp.objects.exists(this.ballObj)) this.ballObj.destroy();
+        if (this.npcRacket && mp.objects.exists(this.npcRacket)) this.npcRacket.destroy();
+        if (this.npcPed && mp.peds.exists(this.npcPed)) this.npcPed.destroy();
     }
 }
 
-function makePlayerSide(player) {
-    return { type: 'player', player };
-}
-
-function makeNpcSide() {
-    return { type: 'npc', model: NPC_MODEL, name: 'Тренер NPC' };
-}
-
-function setupCourtInteraction(court) {
-    const blip = mp.blips.new(TENNIS_BLIP, new mp.Vector3(court.center.x, court.center.y, court.center.z), {
-        name: 'Теннис',
-        color: 2,
-        shortRange: true
+function setupCourts() {
+    courtShapes.forEach(item => {
+        if (item.shape && mp.colshapes.exists(item.shape)) item.shape.destroy();
+        if (item.marker && mp.markers.exists(item.marker)) item.marker.destroy();
+        if (item.blip && mp.blips.exists(item.blip)) item.blip.destroy();
+        if (item.label && mp.labels.exists(item.label)) item.label.destroy();
     });
-    const shape = mp.colshapes.newSphere(court.center.x, court.center.y, court.center.z, 5);
-    shape.isTennisCourt = true;
-    shape.courtId = court.id;
-    courtShapes.set(shape, { court, blip });
+    courtShapes = [];
+
+    COURTS.forEach(court => {
+        const center = court.center;
+        const blip = mp.blips.new(TENNIS_BLIP, new mp.Vector3(center.x, center.y, center.z), {
+            name: 'Теннисный корт',
+            color: 25,
+            shortRange: true
+        });
+        const marker = mp.markers.new(1, new mp.Vector3(center.x, center.y, center.z - 1.0), 1.8, {
+            color: [255, 255, 255, 120],
+            visible: true,
+            dimension: 0
+        });
+        const label = mp.labels.new('Теннисный корт', new mp.Vector3(center.x, center.y, center.z + 1.0), {
+            dimension: 0,
+            los: true,
+            drawDistance: 10
+        });
+        const shape = mp.colshapes.newSphere(center.x, center.y, center.z, 2.5);
+        shape.isTennisCourt = true;
+        shape.courtId = court.id;
+        courtShapes.push({ court, blip, marker, label, shape });
+    });
 }
 
-function startMatch(court, playerA, sideB) {
-    const match = new Match(court, makePlayerSide(playerA), sideB);
-    match.start();
-    return match;
+function courtById(id) {
+    return COURTS.find(c => c.id === id) || null;
+}
+
+function isCourtBusy(courtId) {
+    for (const match of matches.values()) {
+        if (match.running && match.court && match.court.id === courtId) return true;
+    }
+    return false;
 }
 
 module.exports = {
-    COURTS,
     init(deps) {
         notifications = deps.notifications;
-        COURTS.forEach(setupCourtInteraction);
-        if (!inviteTimer) inviteTimer = setInterval(cleanInvites, 5000);
+        setupCourts();
+        ensureTick();
     },
     onEnterCourt(player, courtId) {
         const court = courtById(courtId);
         if (!court) return;
-        player.tennisCourtId = court.id;
-        player.call('tennis.area.enter', [JSON.stringify({ courtId: court.id, name: court.name })]);
+        player.call('tennis:showPrompt', [true, court.name]);
     },
-    onExitCourt(player, courtId) {
-        if (player.tennisCourtId === courtId) delete player.tennisCourtId;
-        player.call('tennis.area.exit');
+    onExitCourt(player) {
+        player.call('tennis:showPrompt', [false]);
     },
-    openMenu(player) {
+    startNpcMatch(player) {
         if (!player.character) return;
-        const courtId = player.tennisCourtId;
-        const court = courtId ? courtById(courtId) : findNearestCourt(player.position, 12);
-        if (!court) {
-            notifications.error(player, 'Рядом нет теннисного корта', 'Теннис');
+        if (player.tennisMatch) {
+            if (notifications) notifications.error(player, 'Вы уже играете в теннис.', 'Теннис');
             return;
         }
-        const match = player.tennisMatch;
-        const invite = invites.get(player.id) || null;
-        const availablePlayers = [];
-        mp.players.forEachInRange(court.center, 25, player.dimension, (candidate) => {
-            if (!candidate.character) return;
-            if (candidate.id === player.id) return;
-            if (candidate.tennisMatch) return;
-            const existingInvite = invites.get(candidate.id);
-            if (existingInvite && existingInvite.fromId === player.id) return;
-            availablePlayers.push({ id: candidate.id, name: candidate.character.name });
-        });
-        let inviteInfo = null;
-        if (invite) {
-            const fromPlayer = mp.players.at(invite.fromId);
-            inviteInfo = {
-                fromId: invite.fromId,
-                name: resolvePlayerName(fromPlayer, 'Игрок')
-            };
-        }
-        const payload = {
-            court: { id: court.id, name: court.name },
-            matchActive: Boolean(match),
-            incomingInvite: inviteInfo,
-            players: availablePlayers
-        };
-        player.call('tennis.menu.open', [JSON.stringify(payload)]);
-    },
-    handleMenuAction(player, action, value) {
-        if (!player.character) return;
-        switch (action) {
-            case 'invitePlayer': {
-                this.handleInvite(player, value);
-                break;
-            }
-            case 'playNpc': {
-                const courtId = player.tennisCourtId;
-                const court = courtId ? courtById(courtId) : findNearestCourt(player.position, 12);
-                if (!court) {
-                    notifications.error(player, 'Рядом нет теннисного корта', 'Теннис');
-                    return;
-                }
-                if (player.tennisMatch) {
-                    notifications.warning(player, 'Вы уже участвуете в матче', 'Теннис');
-                    return;
-                }
-                if (isCourtBusy(court.id)) {
-                    notifications.warning(player, 'Корт уже занят', 'Теннис');
-                    return;
-                }
-                startMatch(court, player, makeNpcSide());
-                notifications.success(player, 'Матч с тренером начался', 'Теннис');
-                break;
-            }
-            case 'acceptInvite': {
-                this.handleAccept(player);
-                break;
-            }
-            case 'declineInvite': {
-                const invite = invites.get(player.id);
-                if (invite) {
-                    invites.delete(player.id);
-                    const from = mp.players.at(invite.fromId);
-                    if (from && mp.players.exists(from)) notifications.info(from, `${player.character.name} отклонил приглашение`, 'Теннис');
-                    player.call('tennis.invite.hide');
-                }
-                break;
-            }
-            case 'leaveMatch': {
-                this.handleLeave(player);
-                break;
-            }
-        }
-    },
-    handleInvite(player, targetId) {
-        const id = parseInt(targetId, 10);
-        if (isNaN(id)) {
-            notifications.error(player, 'Укажите ID игрока', 'Теннис');
-            return;
-        }
-        const target = mp.players.at(id);
-        if (!target || !mp.players.exists(target) || !target.character) {
-            notifications.error(player, 'Игрок не найден', 'Теннис');
-            return;
-        }
-        if (target === player) {
-            notifications.error(player, 'Нельзя пригласить себя', 'Теннис');
-            return;
-        }
-        if (player.tennisMatch || target.tennisMatch) {
-            notifications.error(player, 'Кто-то из вас уже играет', 'Теннис');
-            return;
-        }
-        const courtId = player.tennisCourtId;
-        const court = courtId ? courtById(courtId) : findNearestCourt(player.position, 12);
-        if (!court) {
-            notifications.error(player, 'Рядом нет свободного корта', 'Теннис');
-            return;
-        }
+        const court = COURTS[0];
         if (isCourtBusy(court.id)) {
-            notifications.warning(player, 'Корт уже занят', 'Теннис');
+            if (notifications) notifications.error(player, 'Корт сейчас занят. Попробуйте чуть позже.', 'Теннис');
             return;
         }
-        invites.set(target.id, {
-            fromId: player.id,
-            courtId: court.id,
-            expires: Date.now() + INVITE_TIMEOUT
-        });
-        notifications.success(player, `Приглашение отправлено ${target.character.name}`, 'Теннис');
-        target.call('tennis.invite.show', [JSON.stringify({ fromId: player.id, name: resolvePlayerName(player, 'Игрок'), courtName: court.name })]);
+        if (player.vehicle) {
+            if (notifications) notifications.error(player, 'Выйдите из транспорта, чтобы начать тренировку.', 'Теннис');
+            return;
+        }
+        const match = new Match(player, court);
+        match.start();
     },
-    handleAccept(player) {
-        const invite = invites.get(player.id);
-        if (!invite) {
-            notifications.error(player, 'У вас нет приглашений', 'Теннис');
-            return;
-        }
-        const from = mp.players.at(invite.fromId);
-        invites.delete(player.id);
-        player.call('tennis.invite.hide');
-        if (!from || !mp.players.exists(from) || !from.character) {
-            notifications.error(player, 'Пригласивший игрок недоступен', 'Теннис');
-            return;
-        }
-        if (player.tennisMatch || from.tennisMatch) {
-            notifications.error(player, 'Кто-то из вас уже играет', 'Теннис');
-            return;
-        }
-        const court = courtById(invite.courtId);
-        if (!court) {
-            notifications.error(player, 'Корт недоступен', 'Теннис');
-            return;
-        }
-        if (isCourtBusy(court.id)) {
-            notifications.warning(player, 'Корт уже занят', 'Теннис');
-            return;
-        }
-        startMatch(court, from, makePlayerSide(player));
-    },
-    handleLeave(player) {
-        const match = player.tennisMatch;
-        if (!match) {
-            notifications.error(player, 'Вы не участвуете в матче', 'Теннис');
-            return;
-        }
-        match.stopByPlayer(player);
-    },
-    handleSwing(player, charge, aimX, aimY, aimZ) {
+    handlePlayerHit(player, power) {
         const match = player.tennisMatch;
         if (!match) return;
-        match.handleSwing(player, charge, aimX, aimY, aimZ);
+        match.handlePlayerHit(player, power);
     },
     onPlayerQuit(player) {
-        invites.forEach((invite, targetId) => {
-            if (invite.fromId === player.id || targetId === player.id) {
-                const target = mp.players.at(targetId);
-                if (target && mp.players.exists(target)) target.call('tennis.invite.hide');
-                invites.delete(targetId);
-            }
-        });
-        const match = player.tennisMatch;
-        if (match) match.stopByPlayer(player);
+        if (!player.tennisMatch) return;
+        player.tennisMatch.stopForced('Соперник покинул игру.');
     }
 };
 
