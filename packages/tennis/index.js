@@ -422,6 +422,7 @@ class Match {
                     }
                 }
             }
+        }
         if (this.awaitingHit && Date.now() > this.hitDeadline) {
             this.awaitingHit = false;
             this.player.call('tennis:awaitHit', [0]);
