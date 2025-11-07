@@ -1,5 +1,7 @@
 const KEY_INTERACT = 0x45; // E
 const KEY_SWING = 0x02; // RMB
+const CONTROL_ATTACK = 24;
+const CONTROL_AIM = 25;
 const SCORE_DISPLAY_TIME = 4000;
 const HIT_TIMEOUT = 2500;
 const ZONE_DEFAULT_RADIUS = 2.4;
@@ -37,6 +39,11 @@ const state = {
         radius: ZONE_DEFAULT_RADIUS,
         expire: 0
     }
+};
+
+const inputState = {
+    rmbHeld: false,
+    rmbUsed: false
 };
 
 function canUseKey() {
@@ -247,8 +254,6 @@ function attemptHit() {
     sendHit(power);
 }
 
-mp.keys.bind(KEY_SWING, true, attemptHit);
-
 mp.events.add('tennis:showPrompt', (show, name) => {
     if (state.active) return;
     setPrompt(show, name);
@@ -260,9 +265,15 @@ mp.events.add('tennis:showShopPrompt', (show) => {
 });
 
 mp.events.add('tennis:matchStart', (courtName) => {
+    const swingDict = 'amb@world_human_tennis_forehand@male@base';
+    if (!mp.game.streaming.hasAnimDictLoaded(swingDict)) {
+        mp.game.streaming.requestAnimDict(swingDict);
+    }
     state.active = true;
     state.awaitingHit = false;
     state.swingPending = false;
+    inputState.rmbHeld = false;
+    inputState.rmbUsed = false;
     state.score = [0, 0];
     state.courtName = courtName || state.courtName;
     state.lastMessage = 'Матч начался!';
@@ -301,6 +312,8 @@ mp.events.add('tennis:matchEnd', (playerWon, reason) => {
     destroyBall();
     state.zone.active = false;
     state.zone.expire = 0;
+    inputState.rmbHeld = false;
+    inputState.rmbUsed = false;
     if (mp.busy && mp.busy.remove) mp.busy.remove('tennis');
     if (state.insideZone) setPrompt(true, state.courtName);
 });
@@ -339,6 +352,8 @@ mp.events.add('tennis:ballDestroy', () => {
     state.zone.active = false;
     state.zone.expire = 0;
     state.swingPending = false;
+    inputState.rmbHeld = false;
+    inputState.rmbUsed = false;
 });
 
 mp.events.add('tennis:playSwing', () => {
@@ -375,10 +390,12 @@ mp.events.add('tennis:awaitHit', (deadline) => {
         state.lastMessage = 'Подойдите в зону и нажмите ПКМ, чтобы выполнить удар.';
         state.messageUntil = Date.now() + SCORE_DISPLAY_TIME;
         if (state.zone.active) state.zone.expire = Math.max(state.zone.expire, deadline);
+        inputState.rmbUsed = false;
     } else {
         state.awaitingHit = false;
         state.deadline = 0;
         state.swingPending = false;
+        inputState.rmbUsed = false;
     }
 });
 
@@ -426,6 +443,37 @@ mp.events.add('tennis:debug', (text) => {
 
 mp.events.add('render', () => {
     updateBallFlightRender();
+
+    const aimPressed = mp.game.controls.isControlPressed(0, CONTROL_AIM) || mp.game.controls.isDisabledControlPressed(0, CONTROL_AIM);
+    if (state.active) {
+        if (aimPressed && !inputState.rmbHeld) {
+            inputState.rmbHeld = true;
+            inputState.rmbUsed = false;
+        } else if (!aimPressed && inputState.rmbHeld) {
+            inputState.rmbHeld = false;
+            inputState.rmbUsed = false;
+        }
+
+        if (state.awaitingHit) {
+            mp.game.controls.disableControlAction(0, CONTROL_ATTACK, true);
+            mp.game.controls.disableControlAction(0, CONTROL_AIM, true);
+            const justPressed = mp.game.controls.isControlJustPressed(0, CONTROL_AIM)
+                || mp.game.controls.isDisabledControlJustPressed(0, CONTROL_AIM);
+            if (justPressed) {
+                inputState.rmbUsed = true;
+                attemptHit();
+            } else if (aimPressed && !inputState.rmbUsed) {
+                inputState.rmbUsed = true;
+                attemptHit();
+            }
+        } else if (!aimPressed) {
+            inputState.rmbUsed = false;
+        }
+    } else {
+        if (!aimPressed) inputState.rmbUsed = false;
+        inputState.rmbHeld = false;
+    }
+
     if (!state.active) return;
 
     const resolution = mp.game.graphics.getScreenResolution(0, 0);
