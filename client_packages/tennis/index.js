@@ -2,6 +2,7 @@ const KEY_INTERACT = 0x45; // E
 const KEY_SWING = 0x02; // RMB
 const SCORE_DISPLAY_TIME = 4000;
 const HIT_TIMEOUT = 2500;
+const ZONE_DEFAULT_RADIUS = 2.0;
 
 const BALL_MODEL = mp.game.joaat('prop_tennis_ball');
 
@@ -31,7 +32,7 @@ const state = {
     zone: {
         active: false,
         position: new mp.Vector3(0, 0, 0),
-        radius: 1.6,
+        radius: ZONE_DEFAULT_RADIUS,
         expire: 0
     }
 };
@@ -156,7 +157,16 @@ function setShopPrompt(show) {
 
 function sendHit(power) {
     if (!state.active || !state.awaitingHit) return;
-    mp.events.callRemote('tennis.hit', power);
+    const player = mp.players.local;
+    let x;
+    let y;
+    let z;
+    if (player && player.position) {
+        x = player.position.x;
+        y = player.position.y;
+        z = player.position.z;
+    }
+    mp.events.callRemote('tennis.hit', power, x, y, z);
 }
 
 mp.keys.bind(KEY_INTERACT, true, () => {
@@ -196,7 +206,7 @@ function attemptHit() {
         zone.position.x, zone.position.y, zone.position.z,
         true
     );
-    if (dist > zone.radius + 0.8) {
+    if (dist > zone.radius + 1.0) {
         mp.gui.chat.push('~y~Теннис~w~: Подойдите ближе к зоне удара.');
         return;
     }
@@ -273,7 +283,7 @@ mp.events.add('tennis:ballFlight', (sx, sy, sz, ex, ey, ez, duration, apex, targ
     if (targetSide === 'player') {
         state.zone.active = true;
         state.zone.position = new mp.Vector3(ex, ey, ez);
-        state.zone.radius = 1.6;
+        state.zone.radius = ZONE_DEFAULT_RADIUS;
         state.zone.expire = Date.now() + Math.max(Number(duration) || 0, 0) + HIT_TIMEOUT;
     } else if (targetSide === 'npc') {
         state.zone.active = false;
@@ -328,7 +338,7 @@ mp.events.add('tennis:hitZone', (active, x, y, z, radius, expireTs) => {
     }
     state.zone.active = true;
     state.zone.position = new mp.Vector3(x, y, z);
-    state.zone.radius = typeof radius === 'number' ? radius : 1.6;
+    state.zone.radius = typeof radius === 'number' ? radius : ZONE_DEFAULT_RADIUS;
     state.zone.expire = expireTs || (Date.now() + HIT_TIMEOUT);
 });
 

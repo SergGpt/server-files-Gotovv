@@ -22,8 +22,8 @@ module.exports = {
     "tennis.startNpc": (player) => {
         tennis.startNpcMatch(player);
     },
-    "tennis.hit": (player, power) => {
-        tennis.handlePlayerHit(player, power);
+    "tennis.hit": (player, power, x, y, z) => {
+        tennis.handlePlayerHit(player, power, x, y, z);
     },
     "tennis.shop.open": (player) => {
         tennis.openShop(player);

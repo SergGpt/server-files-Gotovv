@@ -9,6 +9,7 @@ const BALL_APEX_BASE = 2.2;
 const BALL_APEX_POWER = 0.6;
 const BALL_DURATION_BASE = 1500;
 const BALL_DURATION_POWER = 450;
+const PLAYER_ZONE_RADIUS = 2.0;
 const TENNIS_BLIP = 122;
 const SHOP_PED_MODEL = mp.joaat("a_m_y_business_02");
 const SHOP_ITEMS = [
@@ -174,6 +175,7 @@ class Match {
         this.sendScore();
         this.message('Тренировка началась. Попробуйте выиграть розыгрыш до пяти очков.', true);
         this.player.call('tennis:matchStart', [this.court.name]);
+        this.player.call('inventory.setHandsBlock', [true, true]);
         this.launchServe(this.serveSide);
     }
 
@@ -196,6 +198,14 @@ class Match {
             try {
                 const handsItem = inventory.getHandsItem(this.player);
                 inventory.syncHandsItem(this.player, handsItem || null);
+                setTimeout(() => {
+                    if (!this.running) return;
+                    if (!this.player || !mp.players.exists(this.player)) return;
+                    try {
+                        const refreshed = inventory.getHandsItem(this.player);
+                        if (refreshed) inventory.syncHandsItem(this.player, refreshed);
+                    } catch (e) {}
+                }, 350);
             } catch (e) {}
         }
     }
@@ -248,7 +258,7 @@ class Match {
                 x: end.x,
                 y: end.y,
                 z: end.z,
-                radius: 1.6,
+                radius: PLAYER_ZONE_RADIUS,
                 expire: Date.now() + duration + HIT_TIMEOUT
             };
             this.sendHitZone(true, this.playerZone);
@@ -282,7 +292,7 @@ class Match {
         this.ballFlight.launch('npc', 'player', 0.45 + Math.random() * 0.25);
     }
 
-    handlePlayerHit(player, rawPower) {
+    handlePlayerHit(player, rawPower, hitX, hitY, hitZ) {
         if (!this.running || player !== this.player) return;
         if (!this.awaitingHit) return;
         const handsItem = inventory && inventory.getHandsItem ? inventory.getHandsItem(player) : null;
@@ -293,7 +303,15 @@ class Match {
             return;
         }
         const power = clamp(Number(rawPower) || 0, 0, 1);
-        const playerPos = vectorToObject(this.player.position);
+        let playerPos = null;
+        const hx = Number(hitX);
+        const hy = Number(hitY);
+        const hz = Number(hitZ);
+        if (Number.isFinite(hx) && Number.isFinite(hy)) {
+            playerPos = { x: hx, y: hy, z: Number.isFinite(hz) ? hz : this.player.position.z };
+        } else {
+            playerPos = vectorToObject(this.player.position);
+        }
         this.awaitingHit = false;
         this.player.call('tennis:awaitHit', [0]);
         const zone = this.playerZone;
@@ -302,7 +320,7 @@ class Match {
             return;
         }
         const dist = distance2(playerPos, zone);
-        if (dist > (zone.radius + 0.6)) {
+        if (dist > (zone.radius + 1.4)) {
             this.awardPoint('npc', 'Вы промахнулись по мячу.');
             return;
         }
@@ -384,9 +402,16 @@ class Match {
             this.player.tennisMatch = null;
             this.player.call('tennis:ballDestroy');
             this.player.call('tennis:hitZone', [false]);
+            this.player.call('inventory.setHandsBlock', [false, true]);
             setTimeout(() => {
                 if (player && mp.players.exists(player)) {
                     player.call('tennis:showPrompt', [true, this.court.name]);
+                    if (inventory && inventory.getHandsItem && inventory.syncHandsItem) {
+                        try {
+                            const refreshed = inventory.getHandsItem(player);
+                            if (refreshed) inventory.syncHandsItem(player, refreshed);
+                        } catch (e) {}
+                    }
                 }
             }, 300);
         }
@@ -550,10 +575,10 @@ module.exports = {
         const match = new Match(player, court);
         match.start();
     },
-    handlePlayerHit(player, power) {
+    handlePlayerHit(player, power, hitX, hitY, hitZ) {
         const match = player.tennisMatch;
         if (!match) return;
-        match.handlePlayerHit(player, power);
+        match.handlePlayerHit(player, power, hitX, hitY, hitZ);
     },
     onPlayerQuit(player) {
         if (!player.tennisMatch) return;
