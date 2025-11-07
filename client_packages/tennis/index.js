@@ -174,11 +174,15 @@ function sendHit(power) {
 
 mp.keys.bind(KEY_INTERACT, true, () => {
     if (!canUseKey()) return;
-    if (state.shopZone) {
+    if (state.shopZone && !state.active) {
         mp.events.callRemote('tennis.shop.open');
         return;
     }
-    if (!state.insideZone || state.active) return;
+    if (state.active) {
+        if (state.awaitingHit) attemptHit();
+        return;
+    }
+    if (!state.insideZone) return;
     mp.events.callRemote('tennis.startNpc');
 });
 
