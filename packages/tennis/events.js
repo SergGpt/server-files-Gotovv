@@ -7,7 +7,8 @@ module.exports = {
         tennis.init({
             notifications: call('notifications'),
             inventory: call('inventory'),
-            money: call('money')
+            money: call('money'),
+            chat: call('chat')
         });
         inited(__dirname);
     },

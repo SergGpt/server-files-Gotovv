@@ -23,6 +23,7 @@ const state = {
     shopZone: false,
     active: false,
     awaitingHit: false,
+    swingPending: false,
     deadline: 0,
     lastScoreUpdate: 0,
     score: [0, 0],
@@ -49,6 +50,7 @@ function destroyBall() {
         ballObj.destroy();
     }
     ballObj = null;
+    state.swingPending = false;
     ballState.active = false;
     ballState.start = null;
     ballState.end = null;
@@ -208,6 +210,10 @@ function attemptHit() {
         return;
     }
     if (!canUseKey()) return;
+    if (state.swingPending) {
+        if (mp.gui && mp.gui.chat) mp.gui.chat.push('~y~Теннис~w~: Удар уже отправлен, дождитесь реакции соперника.');
+        return;
+    }
     const zone = state.zone;
     if (!zone.active) {
         if (mp.gui && mp.gui.chat) mp.gui.chat.push('~y~Теннис~w~ [debug]: зона удара сейчас неактивна.');
@@ -237,7 +243,7 @@ function attemptHit() {
         mp.gui.chat.push(`~y~Теннис~w~ [debug]: удар dist=${dist.toFixed(2)} r=${zone.radius.toFixed(2)} remain=${remaining}мс power=${power.toFixed(2)}`);
     }
     playSwingAnim();
-    state.awaitingHit = false;
+    state.swingPending = true;
     sendHit(power);
 }
 
@@ -256,6 +262,7 @@ mp.events.add('tennis:showShopPrompt', (show) => {
 mp.events.add('tennis:matchStart', (courtName) => {
     state.active = true;
     state.awaitingHit = false;
+    state.swingPending = false;
     state.score = [0, 0];
     state.courtName = courtName || state.courtName;
     state.lastMessage = 'Матч начался!';
@@ -287,6 +294,7 @@ mp.events.add('tennis:matchEnd', (playerWon, reason) => {
     mp.gui.chat.push(`~y~Теннис~w~: ${text}`);
     state.active = false;
     state.awaitingHit = false;
+    state.swingPending = false;
     state.deadline = 0;
     state.lastMessage = text;
     state.messageUntil = Date.now() + SCORE_DISPLAY_TIME;
@@ -330,6 +338,7 @@ mp.events.add('tennis:ballDestroy', () => {
     destroyBall();
     state.zone.active = false;
     state.zone.expire = 0;
+    state.swingPending = false;
 });
 
 mp.events.add('tennis:playSwing', () => {
@@ -361,6 +370,7 @@ mp.events.add('tennis:awaitHit', (deadline) => {
     if (!state.active) return;
     if (deadline > 0) {
         state.awaitingHit = true;
+        state.swingPending = false;
         state.deadline = deadline;
         state.lastMessage = 'Подойдите в зону и нажмите ПКМ, чтобы выполнить удар.';
         state.messageUntil = Date.now() + SCORE_DISPLAY_TIME;
@@ -368,6 +378,7 @@ mp.events.add('tennis:awaitHit', (deadline) => {
     } else {
         state.awaitingHit = false;
         state.deadline = 0;
+        state.swingPending = false;
     }
 });
 
@@ -375,12 +386,26 @@ mp.events.add('tennis:hitZone', (active, x, y, z, radius, expireTs) => {
     if (!active) {
         state.zone.active = false;
         state.zone.expire = 0;
+        state.swingPending = false;
         return;
     }
     state.zone.active = true;
     state.zone.position = new mp.Vector3(x, y, z);
     state.zone.radius = typeof radius === 'number' ? radius : ZONE_DEFAULT_RADIUS;
     state.zone.expire = expireTs || (Date.now() + HIT_TIMEOUT);
+});
+
+mp.events.add('tennis:hitAck', (success, info, finalPower) => {
+    state.swingPending = false;
+    if (!success) {
+        if (info && mp.gui && mp.gui.chat) {
+            mp.gui.chat.push(`~y~Теннис~w~: ${info}`);
+        }
+        return;
+    }
+    if (typeof finalPower === 'number' && finalPower > 0 && mp.gui && mp.gui.chat) {
+        mp.gui.chat.push(`~y~Теннис~w~ [debug]: Удар принят (мощность ${finalPower.toFixed(2)}).`);
+    }
 });
 
 mp.events.add('tennis:score', (playerScore, npcScore) => {

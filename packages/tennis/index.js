@@ -47,6 +47,7 @@ let nextMatchId = 1;
 let notifications = null;
 let inventory = null;
 let money = null;
+let chat = null;
 let tickTimer = null;
 let courtShapes = [];
 let shopPoint = null;
@@ -86,11 +87,39 @@ function ensureTick() {
     }, TICK_MS);
 }
 
+function stopTickIfIdle() {
+    if (!tickTimer) return;
+    if (matches.size > 0) return;
+    clearInterval(tickTimer);
+    tickTimer = null;
+}
+
+function resolveDependencies(deps = {}) {
+    if (deps.notifications) notifications = deps.notifications;
+    if (deps.inventory) inventory = deps.inventory;
+    if (deps.money) money = deps.money;
+    if (deps.chat) chat = deps.chat;
+
+    if (!notifications && typeof call === 'function') {
+        try { notifications = call('notifications'); } catch (e) {}
+    }
+    if (!inventory && typeof call === 'function') {
+        try { inventory = call('inventory'); } catch (e) {}
+    }
+    if (!money && typeof call === 'function') {
+        try { money = call('money'); } catch (e) {}
+    }
+    if (!chat && typeof call === 'function') {
+        try { chat = call('chat'); } catch (e) {}
+    }
+}
+
 function pushChat(player, message) {
     if (!player || !mp.players.exists(player)) return;
-    try {
-        player.call('chat.message.push', [message]);
-    } catch (e) {}
+    if (chat && typeof chat.push === 'function') {
+        try { chat.push(player, message); return; } catch (e) {}
+    }
+    try { player.call('chat.message.push', [message]); } catch (e) {}
 }
 
 class BallFlight {
@@ -291,6 +320,7 @@ class Match {
             if (this.playerZone) this.playerZone.expire = this.hitDeadline;
             this.sendHitZone(true, this.playerZone);
             this.message('Подойдите в отмеченную зону и нажмите ПКМ, чтобы отбить мяч.');
+            this.sendHitAck(false, '');
         } else {
             setTimeout(() => this.npcHit(), 300);
         }
@@ -306,13 +336,27 @@ class Match {
         this.ballFlight.launch('npc', 'player', 0.45 + Math.random() * 0.25);
     }
 
+    sendHitAck(success, info = '', value = 0) {
+        if (!this.player || !mp.players.exists(this.player)) return;
+        try {
+            this.player.call('tennis:hitAck', [!!success, info || '', Number(value) || 0]);
+        } catch (e) {}
+    }
+
     completePlayerHit(rawPower, playerPos, options = {}) {
-        if (!this.running) return false;
-        if (!this.awaitingHit) {
-            this.debug(`hit ignored: awaitingHit=${this.awaitingHit}`);
+        if (!this.running) {
+            this.sendHitAck(false, 'Тренировка завершена.');
             return false;
         }
-        if (!this.player || !mp.players.exists(this.player)) return false;
+        if (!this.awaitingHit) {
+            this.debug(`hit ignored: awaitingHit=${this.awaitingHit}`);
+            this.sendHitAck(false, 'Мяч пока не ожидает удара.');
+            return false;
+        }
+        if (!this.player || !mp.players.exists(this.player)) {
+            this.sendHitAck(false, 'Игрок недоступен.');
+            return false;
+        }
         const player = this.player;
         if (inventory && typeof inventory.getHandsItem === 'function') {
             const handsItem = inventory.getHandsItem(player);
@@ -322,6 +366,7 @@ class Match {
                 this.player.call('tennis:awaitHit', [0]);
                 this.awardPoint('npc', 'Вы выпустили ракетку из рук.');
                 this.debug('hit rejected: racket not in hand');
+                this.sendHitAck(false, 'Ракетка не в руках.');
                 return false;
             }
         }
@@ -362,6 +407,7 @@ class Match {
             this.player.call('tennis:awaitHit', [0]);
             this.awardPoint('npc', 'Вы промахнулись по мячу.');
             this.debug('hit failed: validation did not pass');
+            this.sendHitAck(false, 'Удар не засчитан.');
             return false;
         }
 
@@ -377,6 +423,7 @@ class Match {
         const finalPower = clamp(0.45 + (power * 0.4) + timingFactor * 0.2, 0.45, 1);
         this.debug(`hit success: source=${options.auto ? 'auto' : 'player'} power=${power.toFixed(2)} finalPower=${finalPower.toFixed(2)}`);
         try { this.player.call('tennis:playSwing'); } catch (e) {}
+        this.sendHitAck(true, '', finalPower);
         this.ballFlight.launch('player', 'npc', finalPower);
         return true;
     }
@@ -400,6 +447,7 @@ class Match {
         if (this.awaitingHit && Date.now() > this.hitDeadline) {
             this.awaitingHit = false;
             this.player.call('tennis:awaitHit', [0]);
+            this.sendHitAck(false, 'Вы не успели нанести удар.');
             this.awardPoint('npc', 'Вы не успели ударить по мячу.');
             this.debug('hit failed: deadline exceeded');
         }
@@ -492,6 +540,7 @@ class Match {
         }
         if (this.npcRacket && mp.objects.exists(this.npcRacket)) this.npcRacket.destroy();
         if (this.npcPed && mp.peds.exists(this.npcPed)) this.npcPed.destroy();
+        stopTickIfIdle();
     }
 
     emitBallFlight(start, end, duration, apex) {
@@ -617,13 +666,10 @@ function isCourtBusy(courtId) {
 }
 
 module.exports = {
-    init(deps) {
-        notifications = deps.notifications || notifications || call('notifications');
-        inventory = deps.inventory || inventory || call('inventory');
-        money = deps.money || money || call('money');
+    init(deps = {}) {
+        resolveDependencies(deps);
         setupCourts();
         setupShop();
-        ensureTick();
     },
     onEnterCourt(player, courtId) {
         const court = courtById(courtId);
@@ -635,12 +681,16 @@ module.exports = {
     },
     startNpcMatch(player) {
         if (!player.character) return;
+        resolveDependencies();
         if (player.tennisMatch) {
             if (notifications) notifications.error(player, 'Вы уже играете в теннис.', 'Теннис');
             return;
         }
-        const handsItem = inventory && inventory.getHandsItem ? inventory.getHandsItem(player) : null;
-        if (!handsItem || handsItem.itemId !== RACKET_ITEM_ID) {
+        const handsItem = inventory && typeof inventory.getHandsItem === 'function'
+            ? inventory.getHandsItem(player)
+            : null;
+        const handsItemId = handsItem && typeof handsItem.itemId !== 'undefined' ? Number(handsItem.itemId) : null;
+        if (handsItemId !== RACKET_ITEM_ID) {
             if (notifications) notifications.error(player, 'Возьмите в руки теннисную ракетку, чтобы начать матч.', 'Теннис');
             return;
         }
@@ -657,6 +707,7 @@ module.exports = {
         match.start();
     },
     handlePlayerHit(player, power, hitX, hitY, hitZ) {
+        resolveDependencies();
         const match = player.tennisMatch;
         if (!match) {
             const debugMsg = 'server: hit received без активного матча';
@@ -672,6 +723,7 @@ module.exports = {
     },
     openShop(player) {
         if (!player.character) return;
+        resolveDependencies();
         if (!player.tennisShop) {
             if (notifications) notifications.error(player, 'Подойдите ближе к продавцу тенниса.', 'Теннис');
             return;
@@ -685,6 +737,7 @@ module.exports = {
     },
     buyShopItem(player, rawIndex) {
         if (!player.character) return;
+        resolveDependencies();
         if (!player.tennisShop) {
             if (notifications) notifications.error(player, 'Вы далеко от продавца.', 'Теннис');
             return;
