@@ -51,6 +51,12 @@ function vectorToObject(vec) {
     return { x: vec.x, y: vec.y, z: vec.z };
 }
 
+function distance2(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
 function distance3(a, b) {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
@@ -112,6 +118,9 @@ class BallFlight {
         this.targetSide = toSide;
         this.active = true;
         this.currentPos = { ...start };
+        if (typeof this.match.onBallLaunch === 'function') {
+            this.match.onBallLaunch(fromSide, toSide, start, end, this.duration, this.apex);
+        }
         this.match.emitBallFlight(start, end, this.duration, this.apex);
     }
 
@@ -149,6 +158,7 @@ class Match {
         this.ballFlight = new BallFlight(this);
         this.backupState = null;
         this.serveSide = 'npc';
+        this.playerZone = null;
     }
 
     start() {
@@ -160,6 +170,7 @@ class Match {
         this.prepareCourt();
         this.spawnNpc();
         this.player.call('tennis:ballCreate');
+        this.player.call('tennis:hitZone', [false]);
         this.sendScore();
         this.message('Тренировка началась. Попробуйте выиграть розыгрыш до пяти очков.', true);
         this.player.call('tennis:matchStart', [this.court.name]);
@@ -181,6 +192,12 @@ class Match {
         this.player.tennisShop = false;
         this.player.call('tennis:showShopPrompt', [false]);
         this.player.call('tennis:shopClose');
+        if (inventory && inventory.getHandsItem && inventory.syncHandsItem) {
+            try {
+                const handsItem = inventory.getHandsItem(this.player);
+                inventory.syncHandsItem(this.player, handsItem || null);
+            } catch (e) {}
+        }
     }
 
     spawnNpc() {
@@ -225,13 +242,31 @@ class Match {
         this.ballFlight.launch(side, side === 'player' ? 'npc' : 'player', side === 'player' ? 0.7 : 0.4);
     }
 
+    onBallLaunch(fromSide, toSide, start, end, duration, apex) {
+        if (toSide === 'player') {
+            this.playerZone = {
+                x: end.x,
+                y: end.y,
+                z: end.z,
+                radius: 1.6,
+                expire: Date.now() + duration + HIT_TIMEOUT
+            };
+            this.sendHitZone(true, this.playerZone);
+        } else if (fromSide === 'player') {
+            this.playerZone = null;
+            this.sendHitZone(false);
+        }
+    }
+
     onBallArrived(side) {
         if (!this.running) return;
         if (side === 'player') {
             this.awaitingHit = true;
             this.hitDeadline = Date.now() + HIT_TIMEOUT;
             this.player.call('tennis:awaitHit', [this.hitDeadline]);
-            this.message('Зажмите и отпустите ЛКМ, чтобы ударить по мячу.');
+            if (this.playerZone) this.playerZone.expire = this.hitDeadline;
+            this.sendHitZone(true, this.playerZone);
+            this.message('Подойдите в отмеченную зону и нажмите ПКМ, чтобы отбить мяч.');
         } else {
             setTimeout(() => this.npcHit(), 300);
         }
@@ -258,17 +293,25 @@ class Match {
             return;
         }
         const power = clamp(Number(rawPower) || 0, 0, 1);
-        const ballPos = this.ballFlight.currentPos;
         const playerPos = vectorToObject(this.player.position);
-        const dist = distance3(ballPos, playerPos);
         this.awaitingHit = false;
         this.player.call('tennis:awaitHit', [0]);
-        if (dist > 3.2) {
+        const zone = this.playerZone;
+        if (!zone) {
             this.awardPoint('npc', 'Вы промахнулись по мячу.');
             return;
         }
+        const dist = distance2(playerPos, zone);
+        if (dist > (zone.radius + 0.6)) {
+            this.awardPoint('npc', 'Вы промахнулись по мячу.');
+            return;
+        }
+        this.playerZone = null;
+        this.sendHitZone(false);
         this.rally += 1;
-        this.ballFlight.launch('player', 'npc', 0.5 + power * 0.5);
+        const timingFactor = clamp(1 - Math.max(this.hitDeadline - Date.now(), 0) / HIT_TIMEOUT, 0, 1);
+        const finalPower = clamp(0.45 + (power * 0.4) + timingFactor * 0.2, 0.45, 1);
+        this.ballFlight.launch('player', 'npc', finalPower);
     }
 
     tick(delta) {
@@ -286,6 +329,8 @@ class Match {
         if (winner === 'player') this.score.player += 1;
         else this.score.npc += 1;
         this.rally = 0;
+        this.playerZone = null;
+        this.sendHitZone(false);
         if (reason) this.message(reason, true);
         this.sendScore();
         if (this.score.player >= MATCH_POINT || this.score.npc >= MATCH_POINT) {
@@ -338,6 +383,7 @@ class Match {
             }
             this.player.tennisMatch = null;
             this.player.call('tennis:ballDestroy');
+            this.player.call('tennis:hitZone', [false]);
             setTimeout(() => {
                 if (player && mp.players.exists(player)) {
                     player.call('tennis:showPrompt', [true, this.court.name]);
@@ -354,7 +400,24 @@ class Match {
             start.x, start.y, start.z,
             end.x, end.y, end.z,
             duration,
-            apex
+            apex,
+            this.ballFlight.targetSide
+        ]);
+    }
+
+    sendHitZone(active, zone = null) {
+        if (!this.player || !mp.players.exists(this.player)) return;
+        if (!active || !zone) {
+            this.player.call('tennis:hitZone', [false]);
+            return;
+        }
+        this.player.call('tennis:hitZone', [
+            true,
+            zone.x,
+            zone.y,
+            zone.z,
+            zone.radius,
+            zone.expire
         ]);
     }
 }
