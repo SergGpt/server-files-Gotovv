@@ -162,7 +162,6 @@ class Match {
         this.score = { player: 0, npc: 0 };
         this.rally = 0;
         this.running = false;
-        const deadline = this.hitDeadline;
         this.awaitingHit = false;
         this.hitDeadline = 0;
         this.npcPed = null;
@@ -369,6 +368,7 @@ class Match {
             return false;
         }
 
+        const deadlineTs = this.hitDeadline || 0;
         this.awaitingHit = false;
         this.hitDeadline = 0;
         this.autoSwingUsed = true;
@@ -377,7 +377,7 @@ class Match {
         this.sendHitZone(false);
 
         this.rally += 1;
-        const timingFactor = clamp(1 - Math.max(deadline - Date.now(), 0) / HIT_TIMEOUT, 0, 1);
+        const timingFactor = clamp(1 - Math.max(deadlineTs - Date.now(), 0) / HIT_TIMEOUT, 0, 1);
         const finalPower = clamp(0.45 + (power * 0.4) + timingFactor * 0.2, 0.45, 1);
         this.debug(`hit success: source=${options.auto ? 'auto' : 'player'} power=${power.toFixed(2)} finalPower=${finalPower.toFixed(2)}`);
         this.ballFlight.launch('player', 'npc', finalPower);
