@@ -156,7 +156,7 @@ function setShopPrompt(show) {
 }
 
 function sendHit(power) {
-    if (!state.active || !state.awaitingHit) return;
+    if (!state.active) return;
     const player = mp.players.local;
     let x;
     let y;
@@ -165,6 +165,9 @@ function sendHit(power) {
         x = player.position.x;
         y = player.position.y;
         z = player.position.z;
+    }
+    if (mp.gui && mp.gui.chat) {
+        mp.gui.chat.push(`~y~Теннис~w~ [debug]: отправка удара power=${Number(power).toFixed(2)} coords=${[x, y, z].map(v => (typeof v === 'number' ? v.toFixed(3) : 'n/a')).join(',')}`);
     }
     mp.events.callRemote('tennis.hit', power, x, y, z);
 }
@@ -193,27 +196,40 @@ function playSwingAnim() {
 }
 
 function attemptHit() {
-    if (!state.active || !state.awaitingHit) return;
+    if (!state.active) return;
+    if (!state.awaitingHit) {
+        if (mp.gui && mp.gui.chat) mp.gui.chat.push('~y~Теннис~w~ [debug]: попытка удара, но мяч не ожидает ответ.');
+        return;
+    }
     if (!canUseKey()) return;
     const zone = state.zone;
-    if (!zone.active) return;
+    if (!zone.active) {
+        if (mp.gui && mp.gui.chat) mp.gui.chat.push('~y~Теннис~w~ [debug]: зона удара сейчас неактивна.');
+        return;
+    }
     const player = mp.players.local;
     if (!player || !player.position) return;
     const now = Date.now();
-    if (zone.expire && now > zone.expire + 150) return;
+    if (zone.expire && now > zone.expire + 150) {
+        if (mp.gui && mp.gui.chat) mp.gui.chat.push('~y~Теннис~w~ [debug]: зона истекла до удара.');
+        return;
+    }
     const dist = mp.game.gameplay.getDistanceBetweenCoords(
         player.position.x, player.position.y, player.position.z,
         zone.position.x, zone.position.y, zone.position.z,
         true
     );
     if (dist > zone.radius + 1.8) {
-        mp.gui.chat.push('~y~Теннис~w~: Подойдите ближе к зоне удара.');
+        mp.gui.chat.push(`~y~Теннис~w~: Подойдите ближе к зоне удара (расстояние ${dist.toFixed(2)} м, радиус ${zone.radius.toFixed(2)} м).`);
         return;
     }
     const remaining = Math.max(0, state.deadline - now);
     const timeRatio = HIT_TIMEOUT > 0 ? 1 - Math.min(remaining / HIT_TIMEOUT, 1) : 1;
     const distRatio = 1 - Math.min(dist / (zone.radius + 1.2), 1);
     const power = Math.max(0.2, Math.min(timeRatio * 0.6 + distRatio * 0.4, 1));
+    if (mp.gui && mp.gui.chat) {
+        mp.gui.chat.push(`~y~Теннис~w~ [debug]: удар dist=${dist.toFixed(2)} r=${zone.radius.toFixed(2)} remain=${remaining}мс power=${power.toFixed(2)}`);
+    }
     playSwingAnim();
     state.awaitingHit = false;
     sendHit(power);
@@ -363,6 +379,12 @@ mp.events.add('tennis:score', (playerScore, npcScore) => {
 mp.events.add('tennis:message', (text) => {
     state.lastMessage = text;
     state.messageUntil = Date.now() + SCORE_DISPLAY_TIME;
+});
+
+mp.events.add('tennis:debug', (text) => {
+    if (typeof text === 'undefined' || text === null) return;
+    const payload = Array.isArray(text) ? text.join(' ') : String(text);
+    if (mp.gui && mp.gui.chat) mp.gui.chat.push(`~y~Теннис~w~ [debug]: ${payload}`);
 });
 
 mp.events.add('render', () => {

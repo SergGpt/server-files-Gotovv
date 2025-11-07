@@ -298,15 +298,20 @@ class Match {
 
     handlePlayerHit(player, rawPower, hitX, hitY, hitZ) {
         if (!this.running || player !== this.player) return;
-        if (!this.awaitingHit) return;
+        if (!this.awaitingHit) {
+            this.debug(`hit ignored: awaitingHit=${this.awaitingHit}`);
+            return;
+        }
         const handsItem = inventory && inventory.getHandsItem ? inventory.getHandsItem(player) : null;
         if (!handsItem || handsItem.itemId !== 148) {
             this.awaitingHit = false;
             this.player.call('tennis:awaitHit', [0]);
             this.awardPoint('npc', 'Вы выпустили ракетку из рук.');
+            this.debug('hit rejected: racket not in hand');
             return;
         }
         const power = clamp(Number(rawPower) || 0, 0, 1);
+        this.debug(`hit received: rawPower=${rawPower}, power=${power.toFixed(2)}`);
         let playerPos = null;
         const hx = Number(hitX);
         const hy = Number(hitY);
@@ -316,26 +321,40 @@ class Match {
         } else {
             playerPos = vectorToObject(this.player.position);
         }
+        const px = Number(playerPos.x) || 0;
+        const py = Number(playerPos.y) || 0;
+        const pz = Number(playerPos.z) || 0;
+        this.debug(`playerPos=${px.toFixed(3)},${py.toFixed(3)},${pz.toFixed(3)}`);
         this.awaitingHit = false;
         this.player.call('tennis:awaitHit', [0]);
         const zone = this.playerZone;
         if (!zone) {
             this.awardPoint('npc', 'Вы промахнулись по мячу.');
+            this.debug('hit failed: no active zone');
             return;
         }
         const tolerance = (zone.radius || PLAYER_ZONE_RADIUS) + 2.6;
         let validStrike = false;
         const ballPos = this.ballFlight && this.ballFlight.currentPos ? this.ballFlight.currentPos : null;
         if (ballPos) {
+            const bx = Number(ballPos.x) || 0;
+            const by = Number(ballPos.y) || 0;
+            const bz = Number(ballPos.z) || 0;
             const ballGap = distance3(playerPos, ballPos);
+            this.debug(`ballPos=${bx.toFixed(3)},${by.toFixed(3)},${bz.toFixed(3)} gap=${ballGap.toFixed(3)} tol=${(tolerance + 1).toFixed(3)}`);
             if (ballGap <= tolerance + 1) validStrike = true;
         }
         if (!validStrike) {
             const flatDist = distance2(playerPos, zone);
+            const zx = Number(zone.x) || 0;
+            const zy = Number(zone.y) || 0;
+            const zz = Number(zone.z) || 0;
+            this.debug(`zonePos=${zx.toFixed(3)},${zy.toFixed(3)},${zz.toFixed(3)} flatDist=${flatDist.toFixed(3)} tol=${tolerance.toFixed(3)}`);
             if (flatDist <= tolerance) validStrike = true;
         }
         if (!validStrike) {
             this.awardPoint('npc', 'Вы промахнулись по мячу.');
+            this.debug('hit failed: distance too large');
             return;
         }
         this.playerZone = null;
@@ -343,6 +362,7 @@ class Match {
         this.rally += 1;
         const timingFactor = clamp(1 - Math.max(this.hitDeadline - Date.now(), 0) / HIT_TIMEOUT, 0, 1);
         const finalPower = clamp(0.45 + (power * 0.4) + timingFactor * 0.2, 0.45, 1);
+        this.debug(`hit success: timingFactor=${timingFactor.toFixed(2)} finalPower=${finalPower.toFixed(2)}`);
         this.ballFlight.launch('player', 'npc', finalPower);
     }
 
@@ -353,6 +373,7 @@ class Match {
             this.awaitingHit = false;
             this.player.call('tennis:awaitHit', [0]);
             this.awardPoint('npc', 'Вы не успели ударить по мячу.');
+            this.debug('hit failed: deadline exceeded');
         }
     }
 
@@ -364,6 +385,7 @@ class Match {
         this.playerZone = null;
         this.sendHitZone(false);
         if (reason) this.message(reason, true);
+        this.debug(`point -> winner=${winner} score=${this.score.player}:${this.score.npc} reason=${reason || 'n/a'}`);
         this.sendScore();
         if (this.score.player >= MATCH_POINT || this.score.npc >= MATCH_POINT) {
             const playerWon = this.score.player > this.score.npc;
@@ -386,6 +408,12 @@ class Match {
         if (!this.player || !mp.players.exists(this.player)) return;
         if (notify && notifications) notifications.info(this.player, text, 'Теннис');
         this.player.call('tennis:message', [text]);
+    }
+
+    debug(text) {
+        if (!text) return;
+        if (!this.player || !mp.players.exists(this.player)) return;
+        this.player.call('tennis:debug', [String(text)]);
     }
 
     finish(playerWon, reason) {
@@ -450,9 +478,15 @@ class Match {
     sendHitZone(active, zone = null) {
         if (!this.player || !mp.players.exists(this.player)) return;
         if (!active || !zone) {
+            this.debug('zone cleared');
             this.player.call('tennis:hitZone', [false]);
             return;
         }
+        const zx = Number(zone.x) || 0;
+        const zy = Number(zone.y) || 0;
+        const zz = Number(zone.z) || 0;
+        const zr = Number(zone.radius || 0);
+        this.debug(`zone set: (${zx.toFixed(3)},${zy.toFixed(3)},${zz.toFixed(3)}) r=${zr.toFixed(2)} expire=${zone.expire}`);
         this.player.call('tennis:hitZone', [
             true,
             zone.x,
@@ -594,7 +628,10 @@ module.exports = {
     },
     handlePlayerHit(player, power, hitX, hitY, hitZ) {
         const match = player.tennisMatch;
-        if (!match) return;
+        if (!match) {
+            try { player.call('tennis:debug', ['server: hit received без активного матча']); } catch (e) {}
+            return;
+        }
         match.handlePlayerHit(player, power, hitX, hitY, hitZ);
     },
     onPlayerQuit(player) {
