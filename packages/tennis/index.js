@@ -12,9 +12,12 @@ const BALL_DURATION_POWER = 450;
 const PLAYER_ZONE_RADIUS = 2.4;
 const TENNIS_BLIP = 122;
 const SHOP_PED_MODEL = mp.joaat("a_m_y_business_02");
+const RACKET_ITEM_ID = 200;
+const BALL_ITEM_ID = 201;
+
 const SHOP_ITEMS = [
-    { name: "Теннисная ракетка", itemId: 148, price: 450, params: {} },
-    { name: "Теннисный мяч", itemId: 149, price: 25, params: {} }
+    { name: "Теннисная ракетка", itemId: RACKET_ITEM_ID, price: 450, params: {} },
+    { name: "Теннисный мяч", itemId: BALL_ITEM_ID, price: 25, params: {} }
 ];
 const SHOP_POINT = { x: -1154.6, y: -1638.4, z: 4.37, heading: 95 };
 
@@ -318,7 +321,7 @@ class Match {
         if (inventory && typeof inventory.getHandsItem === 'function') {
             const handsItem = inventory.getHandsItem(player);
             const handsItemId = handsItem && typeof handsItem.itemId !== 'undefined' ? Number(handsItem.itemId) : null;
-            if (handsItemId !== 148) {
+            if (handsItemId !== RACKET_ITEM_ID) {
                 this.awaitingHit = false;
                 this.player.call('tennis:awaitHit', [0]);
                 this.awardPoint('npc', 'Вы выпустили ракетку из рук.');
@@ -663,7 +666,7 @@ module.exports = {
             return;
         }
         const handsItem = inventory && inventory.getHandsItem ? inventory.getHandsItem(player) : null;
-        if (!handsItem || handsItem.itemId !== 148) {
+        if (!handsItem || handsItem.itemId !== RACKET_ITEM_ID) {
             if (notifications) notifications.error(player, 'Возьмите в руки теннисную ракетку, чтобы начать матч.', 'Теннис');
             return;
         }
