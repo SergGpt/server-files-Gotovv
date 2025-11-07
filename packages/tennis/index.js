@@ -170,7 +170,6 @@ class Match {
         this.backupState = null;
         this.serveSide = 'npc';
         this.playerZone = null;
-        this.autoSwingUsed = false;
     }
 
     start() {
@@ -264,7 +263,6 @@ class Match {
     launchServe(side) {
         this.awaitingHit = false;
         this.hitDeadline = 0;
-        this.autoSwingUsed = false;
         this.ballFlight.launch(side, side === 'player' ? 'npc' : 'player', side === 'player' ? 0.7 : 0.4);
     }
 
@@ -289,7 +287,6 @@ class Match {
         if (side === 'player') {
             this.awaitingHit = true;
             this.hitDeadline = Date.now() + HIT_TIMEOUT;
-            this.autoSwingUsed = false;
             this.player.call('tennis:awaitHit', [this.hitDeadline]);
             if (this.playerZone) this.playerZone.expire = this.hitDeadline;
             this.sendHitZone(true, this.playerZone);
@@ -371,7 +368,6 @@ class Match {
         const deadlineTs = this.hitDeadline || 0;
         this.awaitingHit = false;
         this.hitDeadline = 0;
-        this.autoSwingUsed = true;
         this.player.call('tennis:awaitHit', [0]);
         this.playerZone = null;
         this.sendHitZone(false);
@@ -380,6 +376,7 @@ class Match {
         const timingFactor = clamp(1 - Math.max(deadlineTs - Date.now(), 0) / HIT_TIMEOUT, 0, 1);
         const finalPower = clamp(0.45 + (power * 0.4) + timingFactor * 0.2, 0.45, 1);
         this.debug(`hit success: source=${options.auto ? 'auto' : 'player'} power=${power.toFixed(2)} finalPower=${finalPower.toFixed(2)}`);
+        try { this.player.call('tennis:playSwing'); } catch (e) {}
         this.ballFlight.launch('player', 'npc', finalPower);
         return true;
     }
@@ -400,29 +397,6 @@ class Match {
     tick(delta) {
         if (!this.running) return;
         this.ballFlight.updatePosition(delta);
-        if (this.awaitingHit) {
-            if (this.playerZone && this.player && mp.players.exists(this.player) && !this.autoSwingUsed) {
-                const zone = this.playerZone;
-                const mpPos = this.player.position;
-                if (mpPos) {
-                    const playerPos = vectorToObject(mpPos);
-                    const flatDist = distance2(playerPos, zone);
-                    const tolerance = (Number(zone.radius) || PLAYER_ZONE_RADIUS) + 1.4;
-                    const ballPos = this.ballFlight && this.ballFlight.currentPos ? this.ballFlight.currentPos : null;
-                    const ballGap = ballPos ? distance3(playerPos, ballPos) : Number.POSITIVE_INFINITY;
-                    if (flatDist <= tolerance && ballGap <= tolerance + 1.4) {
-                        const now = Date.now();
-                        const remaining = this.hitDeadline > 0 ? Math.max(0, this.hitDeadline - now) : 0;
-                        const timingFactor = clamp(1 - Math.min(remaining / HIT_TIMEOUT, 1), 0, 1);
-                        const autoPower = clamp(0.5 + timingFactor * 0.35, 0.45, 0.95);
-                        this.debug(`auto swing: flatDist=${flatDist.toFixed(3)} ballGap=${ballGap.toFixed(3)} remain=${remaining}`);
-                        if (this.completePlayerHit(autoPower, playerPos, { auto: true, forceAccept: true })) {
-                            return;
-                        }
-                    }
-                }
-            }
-        }
         if (this.awaitingHit && Date.now() > this.hitDeadline) {
             this.awaitingHit = false;
             this.player.call('tennis:awaitHit', [0]);
@@ -439,7 +413,6 @@ class Match {
         this.playerZone = null;
         this.sendHitZone(false);
         if (reason) this.message(reason, true);
-        this.autoSwingUsed = false;
         this.debug(`point -> winner=${winner} score=${this.score.player}:${this.score.npc} reason=${reason || 'n/a'}`);
         this.sendScore();
         if (this.score.player >= MATCH_POINT || this.score.npc >= MATCH_POINT) {

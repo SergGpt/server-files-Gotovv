@@ -29,6 +29,7 @@ const state = {
     courtName: '',
     lastMessage: null,
     messageUntil: 0,
+    lastSwingAnim: 0,
     zone: {
         active: false,
         position: new mp.Vector3(0, 0, 0),
@@ -196,6 +197,7 @@ function playSwingAnim() {
     }
     if (mp.game.streaming.hasAnimDictLoaded(dict)) {
         player.taskPlayAnim(dict, anim, 8.0, -8.0, 600, 0, 0, false, false, false);
+        state.lastSwingAnim = Date.now();
     }
 }
 
@@ -328,6 +330,12 @@ mp.events.add('tennis:ballDestroy', () => {
     destroyBall();
     state.zone.active = false;
     state.zone.expire = 0;
+});
+
+mp.events.add('tennis:playSwing', () => {
+    if (Date.now() - state.lastSwingAnim > 350) {
+        playSwingAnim();
+    }
 });
 
 mp.events.add('tennis:shopOpen', (itemsJson) => {
