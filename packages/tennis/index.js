@@ -9,7 +9,7 @@ const BALL_APEX_BASE = 2.2;
 const BALL_APEX_POWER = 0.6;
 const BALL_DURATION_BASE = 1500;
 const BALL_DURATION_POWER = 450;
-const PLAYER_ZONE_RADIUS = 2.0;
+const PLAYER_ZONE_RADIUS = 2.4;
 const TENNIS_BLIP = 122;
 const SHOP_PED_MODEL = mp.joaat("a_m_y_business_02");
 const SHOP_ITEMS = [
@@ -165,6 +165,7 @@ class Match {
     start() {
         if (!this.player || !mp.players.exists(this.player)) return;
         ensureTick();
+        try { this.player.setVariable('tennisActive', true); } catch (e) {}
         this.running = true;
         this.player.tennisMatch = this;
         matches.set(this.id, this);
@@ -195,18 +196,21 @@ class Match {
         this.player.call('tennis:showShopPrompt', [false]);
         this.player.call('tennis:shopClose');
         if (inventory && inventory.getHandsItem && inventory.syncHandsItem) {
+            const attemptResync = () => {
+                if (!this.running) return;
+                if (!this.player || !mp.players.exists(this.player)) return;
+                try {
+                    const refreshed = inventory.getHandsItem(this.player);
+                    if (refreshed) inventory.syncHandsItem(this.player, refreshed);
+                } catch (e) {}
+            };
             try {
-                const handsItem = inventory.getHandsItem(this.player);
-                inventory.syncHandsItem(this.player, handsItem || null);
-                setTimeout(() => {
-                    if (!this.running) return;
-                    if (!this.player || !mp.players.exists(this.player)) return;
-                    try {
-                        const refreshed = inventory.getHandsItem(this.player);
-                        if (refreshed) inventory.syncHandsItem(this.player, refreshed);
-                    } catch (e) {}
-                }, 350);
+                const initial = inventory.getHandsItem(this.player);
+                if (initial) inventory.syncHandsItem(this.player, initial);
             } catch (e) {}
+            setTimeout(attemptResync, 350);
+            setTimeout(attemptResync, 800);
+            setTimeout(attemptResync, 1400);
         }
     }
 
@@ -319,8 +323,18 @@ class Match {
             this.awardPoint('npc', 'Вы промахнулись по мячу.');
             return;
         }
-        const dist = distance2(playerPos, zone);
-        if (dist > (zone.radius + 1.4)) {
+        const tolerance = (zone.radius || PLAYER_ZONE_RADIUS) + 2.6;
+        let validStrike = false;
+        const ballPos = this.ballFlight && this.ballFlight.currentPos ? this.ballFlight.currentPos : null;
+        if (ballPos) {
+            const ballGap = distance3(playerPos, ballPos);
+            if (ballGap <= tolerance + 1) validStrike = true;
+        }
+        if (!validStrike) {
+            const flatDist = distance2(playerPos, zone);
+            if (flatDist <= tolerance) validStrike = true;
+        }
+        if (!validStrike) {
             this.awardPoint('npc', 'Вы промахнулись по мячу.');
             return;
         }
@@ -393,6 +407,7 @@ class Match {
         this.hitDeadline = 0;
         matches.delete(this.id);
         if (this.player && mp.players.exists(this.player)) {
+            try { this.player.setVariable('tennisActive', false); } catch (e) {}
             const player = this.player;
             if (this.backupState) {
                 this.player.dimension = this.backupState.dimension;
@@ -414,6 +429,8 @@ class Match {
                     }
                 }
             }, 300);
+        } else if (this.player) {
+            try { this.player.setVariable('tennisActive', false); } catch (e) {}
         }
         if (this.npcRacket && mp.objects.exists(this.npcRacket)) this.npcRacket.destroy();
         if (this.npcPed && mp.peds.exists(this.npcPed)) this.npcPed.destroy();

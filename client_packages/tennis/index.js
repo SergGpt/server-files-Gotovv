@@ -2,7 +2,7 @@ const KEY_INTERACT = 0x45; // E
 const KEY_SWING = 0x02; // RMB
 const SCORE_DISPLAY_TIME = 4000;
 const HIT_TIMEOUT = 2500;
-const ZONE_DEFAULT_RADIUS = 2.0;
+const ZONE_DEFAULT_RADIUS = 2.4;
 
 const BALL_MODEL = mp.game.joaat('prop_tennis_ball');
 
@@ -206,13 +206,13 @@ function attemptHit() {
         zone.position.x, zone.position.y, zone.position.z,
         true
     );
-    if (dist > zone.radius + 1.0) {
+    if (dist > zone.radius + 1.8) {
         mp.gui.chat.push('~y~Теннис~w~: Подойдите ближе к зоне удара.');
         return;
     }
     const remaining = Math.max(0, state.deadline - now);
     const timeRatio = HIT_TIMEOUT > 0 ? 1 - Math.min(remaining / HIT_TIMEOUT, 1) : 1;
-    const distRatio = 1 - Math.min(dist / (zone.radius + 0.5), 1);
+    const distRatio = 1 - Math.min(dist / (zone.radius + 1.2), 1);
     const power = Math.max(0.2, Math.min(timeRatio * 0.6 + distRatio * 0.4, 1));
     playSwingAnim();
     state.awaitingHit = false;
@@ -245,6 +245,19 @@ mp.events.add('tennis:matchStart', (courtName) => {
     state.zone.active = false;
     state.zone.expire = 0;
     if (mp.busy && mp.busy.add) mp.busy.add('tennis', false);
+    const reapplyHands = () => {
+        if (!state.active) return;
+        const player = mp.players.local;
+        if (!player || !player.getVariable) return;
+        const itemId = player.getVariable('hands');
+        if (!itemId) return;
+        if (mp.inventory && typeof mp.inventory.hands === 'function') {
+            mp.inventory.hands(player, itemId);
+        }
+    };
+    setTimeout(reapplyHands, 200);
+    setTimeout(reapplyHands, 650);
+    setTimeout(reapplyHands, 1200);
 });
 
 mp.events.add('tennis:matchEnd', (playerWon, reason) => {
@@ -389,7 +402,7 @@ mp.events.add('render', () => {
             state.zone.radius * 2,
             0.4,
             120, 220, 255, 120,
-            false, false, 2, false, '', '', false
+            false, false, 2, false, null, null, false
         );
     }
 

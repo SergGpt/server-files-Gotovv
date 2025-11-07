@@ -520,6 +520,7 @@ mp.events.add("click", (x, y, upOrDown, leftOrRight, relativeX, relativeY, world
     if (upOrDown != 'down' || leftOrRight != 'left') return;
     if (mp.game.ui.isPauseMenuActive()) return;
     if (mp.busy.includes()) return;
+    if (mp.players.local && mp.players.local.getVariable && mp.players.local.getVariable('tennisActive')) return;
     if (!mp.players.local.getVariable("hands")) return;
     if (mp.inventory.isFlood()) {
         mp.callCEFV(`inventory.clearHands()`);
