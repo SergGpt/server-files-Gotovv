@@ -5272,6 +5272,30 @@ var selectMenu = new Vue({
                     }
                 }
             },
+            "tennisShop": {
+                name: "tennisShop",
+                header: "Теннисный магазин",
+                items: [{
+                    text: "Закрыть"
+                }],
+                i: 0,
+                j: 0,
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    if (!item) return;
+                    if (eventName == 'onItemSelected') {
+                        if (item.buyIndex != null) {
+                            mp.trigger('callRemote', 'tennis.shop.buy', item.buyIndex);
+                        } else {
+                            selectMenu.show = false;
+                            mp.trigger('callRemote', 'tennis.shop.close');
+                        }
+                    } else if (eventName == 'onBackspacePressed' || eventName == 'onEscapePressed') {
+                        selectMenu.show = false;
+                        mp.trigger('callRemote', 'tennis.shop.close');
+                    }
+                }
+            },
             "busJobMenu": {
                 name: "busjob",
                 header: "Управляющий станцией",

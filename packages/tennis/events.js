@@ -4,7 +4,11 @@ const tennis = require('./index');
 
 module.exports = {
     "init": () => {
-        tennis.init({ notifications: call('notifications') });
+        tennis.init({
+            notifications: call('notifications'),
+            inventory: call('inventory'),
+            money: call('money')
+        });
         inited(__dirname);
     },
     "playerEnterColshape": (player, shape) => {
@@ -20,6 +24,15 @@ module.exports = {
     },
     "tennis.hit": (player, power) => {
         tennis.handlePlayerHit(player, power);
+    },
+    "tennis.shop.open": (player) => {
+        tennis.openShop(player);
+    },
+    "tennis.shop.buy": (player, index) => {
+        tennis.buyShopItem(player, index);
+    },
+    "tennis.shop.close": (player) => {
+        tennis.closeShop(player);
     },
     "playerQuit": (player) => {
         tennis.onPlayerQuit(player);

@@ -4,20 +4,23 @@ const CHARGE_TIME = 1200;
 const SCORE_DISPLAY_TIME = 4000;
 const HIT_TIMEOUT = 2500;
 
-const RACKET_MODEL = mp.game.joaat('prop_tennis_rack_01');
 const BALL_MODEL = mp.game.joaat('prop_tennis_ball');
-const RACKET_BONE = 57005;
-const RACKET_OFFSET = { x: 0.12, y: 0.02, z: 0.0 };
-const RACKET_ROT = { x: -90.0, y: 0.0, z: 0.0 };
 
-let racketObj = null;
-let racketTimer = null;
 let ballObj = null;
 let ballTimer = null;
-let pendingBallPos = null;
+const ballState = {
+    active: false,
+    start: null,
+    end: null,
+    apex: 0,
+    duration: 1,
+    startTime: 0,
+    lastPos: null
+};
 
 const state = {
     insideZone: false,
+    shopZone: false,
     active: false,
     awaitingHit: false,
     chargeStart: null,
@@ -36,49 +39,22 @@ function canUseKey() {
     return true;
 }
 
-function destroyRacket() {
-    if (racketTimer) {
-        clearTimeout(racketTimer);
-        racketTimer = null;
-    }
-    if (racketObj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(racketObj)) {
-        racketObj.destroy();
-    }
-    racketObj = null;
-}
-
-function spawnRacket() {
-    destroyRacket();
-    if (!mp.game.streaming.isModelInCdimage(RACKET_MODEL)) return;
-    mp.game.streaming.requestModel(RACKET_MODEL);
-    racketTimer = setTimeout(() => {
-        racketTimer = null;
-        const player = mp.players.local;
-        if (!player || !player.handle) return;
-        if (!mp.game.streaming.hasModelLoaded(RACKET_MODEL)) return;
-        racketObj = mp.objects.new(RACKET_MODEL, player.position, {
-            dimension: player.dimension
-        });
-        if (!racketObj) return;
-        const bone = player.getBoneIndex(RACKET_BONE);
-        if (bone === -1) return;
-        racketObj.attachTo(player.handle, bone,
-            RACKET_OFFSET.x, RACKET_OFFSET.y, RACKET_OFFSET.z,
-            RACKET_ROT.x, RACKET_ROT.y, RACKET_ROT.z,
-            false, false, false, false, 2, true);
-    }, 120);
-}
-
 function destroyBall() {
     if (ballTimer) {
         clearTimeout(ballTimer);
         ballTimer = null;
     }
-    pendingBallPos = null;
     if (ballObj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(ballObj)) {
         ballObj.destroy();
     }
     ballObj = null;
+    ballState.active = false;
+    ballState.start = null;
+    ballState.end = null;
+    ballState.duration = 1;
+    ballState.apex = 0;
+    ballState.startTime = 0;
+    ballState.lastPos = null;
 }
 
 function ensureBallObject() {
@@ -96,32 +72,89 @@ function ensureBallObject() {
         ballObj = mp.objects.new(BALL_MODEL, player.position, {
             dimension: player.dimension
         });
-        if (ballObj && pendingBallPos) {
-            ballObj.position = pendingBallPos;
+        if (ballObj) {
+            if (ballState.lastPos) ballObj.position = ballState.lastPos;
+            try { ballObj.setCollision(false, false); } catch (e) {}
         }
     }, 120);
     return null;
 }
 
-function updateBallPosition(pos) {
-    pendingBallPos = pos;
-    if (!pos) return;
-    const obj = ensureBallObject();
-    if (obj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(obj)) {
-        obj.position = pos;
+function getBallPositionAt(t) {
+    if (!ballState.start || !ballState.end) return null;
+    const clamped = Math.min(Math.max(t, 0), 1);
+    const inv = 1 - clamped;
+    const x = ballState.start.x * inv + ballState.end.x * clamped;
+    const y = ballState.start.y * inv + ballState.end.y * clamped;
+    const baseZ = ballState.start.z * inv + ballState.end.z * clamped;
+    const z = baseZ + ballState.apex * Math.sin(Math.PI * clamped);
+    return new mp.Vector3(x, y, z);
+}
+
+function updateBallFlightRender() {
+    if (!ballState.active) {
+        if (ballState.lastPos && ballObj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(ballObj)) {
+            ballObj.position = ballState.lastPos;
+        }
+        return;
+    }
+    const now = Date.now();
+    const duration = Math.max(1, ballState.duration);
+    let t = (now - ballState.startTime) / duration;
+    if (t >= 1) t = 1;
+    const pos = getBallPositionAt(t);
+    if (pos) {
+        ballState.lastPos = pos;
+        const obj = ensureBallObject();
+        if (obj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(obj)) obj.position = pos;
+    }
+    if (t >= 1) {
+        ballState.active = false;
+        if (ballState.end) {
+            ballState.lastPos = new mp.Vector3(ballState.end.x, ballState.end.y, ballState.end.z);
+            if (ballObj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(ballObj)) ballObj.position = ballState.lastPos;
+        }
     }
 }
 
 function setPrompt(show, name) {
     state.insideZone = show;
     state.courtName = name || '';
+    if (state.shopZone) {
+        if (!show) return;
+        // если одновременно показывается магазин, приоритет у магазина
+        return;
+    }
     if (show) {
-        const label = name ? `Нажмите <span>E</span>, чтобы начать тренировку (${name})` : 'Нажмите <span>E</span>, чтобы начать тренировку';
+        const label = name
+            ? `Нажмите <span>E</span>, чтобы начать тренировку (${name}). Необходимо держать ракетку в руках.`
+            : 'Нажмите <span>E</span>, чтобы начать тренировку. Необходимо держать ракетку в руках.';
         if (mp.prompt && typeof mp.prompt.show === 'function') mp.prompt.show(label);
         else mp.events.call('prompt.show', label);
     } else {
         if (mp.prompt && typeof mp.prompt.hide === 'function') mp.prompt.hide();
         else mp.events.call('prompt.hide');
+    }
+}
+
+function setShopPrompt(show) {
+    state.shopZone = show;
+    if (show) {
+        const label = 'Нажмите <span>E</span>, чтобы купить теннисное снаряжение';
+        if (mp.prompt && typeof mp.prompt.show === 'function') mp.prompt.show(label);
+        else mp.events.call('prompt.show', label);
+    } else {
+        if (state.active) {
+            if (mp.prompt && typeof mp.prompt.hide === 'function') mp.prompt.hide();
+            else mp.events.call('prompt.hide');
+            return;
+        }
+        if (state.insideZone && state.courtName) {
+            setPrompt(true, state.courtName);
+        } else {
+            if (mp.prompt && typeof mp.prompt.hide === 'function') mp.prompt.hide();
+            else mp.events.call('prompt.hide');
+        }
     }
 }
 
@@ -131,8 +164,12 @@ function sendHit(power) {
 }
 
 mp.keys.bind(KEY_INTERACT, true, () => {
-    if (!state.insideZone || state.active) return;
     if (!canUseKey()) return;
+    if (state.shopZone) {
+        mp.events.callRemote('tennis.shop.open');
+        return;
+    }
+    if (!state.insideZone || state.active) return;
     mp.events.callRemote('tennis.startNpc');
 });
 
@@ -158,6 +195,11 @@ mp.events.add('tennis:showPrompt', (show, name) => {
     setPrompt(show, name);
 });
 
+mp.events.add('tennis:showShopPrompt', (show) => {
+    if (state.active && show) return;
+    setShopPrompt(!!show);
+});
+
 mp.events.add('tennis:matchStart', (courtName) => {
     state.active = true;
     state.awaitingHit = false;
@@ -167,6 +209,7 @@ mp.events.add('tennis:matchStart', (courtName) => {
     state.courtName = courtName || state.courtName;
     state.lastMessage = 'Матч начался!';
     state.messageUntil = Date.now() + SCORE_DISPLAY_TIME;
+    setShopPrompt(false);
     if (mp.prompt && typeof mp.prompt.hide === 'function') mp.prompt.hide();
     else mp.events.call('prompt.hide');
     mp.gui.chat.push('~y~Теннис~w~: Матч начался. Держите ЛКМ, чтобы зарядить удар.');
@@ -183,25 +226,49 @@ mp.events.add('tennis:matchEnd', (playerWon, reason) => {
     state.lastMessage = text;
     state.messageUntil = Date.now() + SCORE_DISPLAY_TIME;
     destroyBall();
-    destroyRacket();
     if (state.insideZone) setPrompt(true, state.courtName);
-});
-
-mp.events.add('tennis:racket', (enable) => {
-    if (enable) spawnRacket();
-    else destroyRacket();
 });
 
 mp.events.add('tennis:ballCreate', () => {
     ensureBallObject();
 });
 
-mp.events.add('tennis:ballUpdate', (x, y, z) => {
-    updateBallPosition(new mp.Vector3(x, y, z));
+mp.events.add('tennis:ballFlight', (sx, sy, sz, ex, ey, ez, duration, apex) => {
+    ballState.start = { x: sx, y: sy, z: sz };
+    ballState.end = { x: ex, y: ey, z: ez };
+    ballState.duration = Math.max(200, Number(duration) || 1000);
+    ballState.apex = Number(apex) || 0;
+    ballState.startTime = Date.now();
+    ballState.active = true;
+    const pos = getBallPositionAt(0);
+    ballState.lastPos = pos || (ballState.start ? new mp.Vector3(ballState.start.x, ballState.start.y, ballState.start.z) : null);
+    if (ballState.lastPos) {
+        const obj = ensureBallObject();
+        if (obj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(obj)) obj.position = ballState.lastPos;
+    }
 });
 
 mp.events.add('tennis:ballDestroy', () => {
     destroyBall();
+});
+
+mp.events.add('tennis:shopOpen', (itemsJson) => {
+    let items;
+    try {
+        items = JSON.parse(itemsJson);
+    } catch (e) {
+        return;
+    }
+    if (!Array.isArray(items)) return;
+    const payload = JSON.stringify(items);
+    mp.callCEFV(`selectMenu.menus['tennisShop'].items = ${payload};`);
+    mp.callCEFV(`selectMenu.menus['tennisShop'].i = 0; selectMenu.menus['tennisShop'].j = 0;`);
+    mp.callCEFV(`selectMenu.menu = cloneObj(selectMenu.menus['tennisShop']);`);
+    mp.callCEFV(`selectMenu.show = true;`);
+});
+
+mp.events.add('tennis:shopClose', () => {
+    mp.callCEFV('selectMenu.show = false;');
 });
 
 mp.events.add('tennis:awaitHit', (deadline) => {
@@ -228,6 +295,7 @@ mp.events.add('tennis:message', (text) => {
 });
 
 mp.events.add('render', () => {
+    updateBallFlightRender();
     if (state.chargeStart !== null) {
         const elapsed = Date.now() - state.chargeStart;
         state.chargeProgress = Math.max(0, Math.min(elapsed / CHARGE_TIME, 1));

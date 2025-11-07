@@ -10,6 +10,12 @@ const BALL_APEX_POWER = 0.6;
 const BALL_DURATION_BASE = 1500;
 const BALL_DURATION_POWER = 450;
 const TENNIS_BLIP = 122;
+const SHOP_PED_MODEL = mp.joaat("a_m_y_business_02");
+const SHOP_ITEMS = [
+    { name: "Теннисная ракетка", itemId: 148, price: 450, params: {} },
+    { name: "Теннисный мяч", itemId: 149, price: 25, params: {} }
+];
+const SHOP_POINT = { x: -1154.6, y: -1638.4, z: 4.37, heading: 95 };
 
 const COURTS = [
     {
@@ -35,8 +41,11 @@ const RACKET_ATTACH = {
 const matches = new Map();
 let nextMatchId = 1;
 let notifications = null;
+let inventory = null;
+let money = null;
 let tickTimer = null;
 let courtShapes = [];
+let shopPoint = null;
 
 function vectorToObject(vec) {
     return { x: vec.x, y: vec.y, z: vec.z };
@@ -102,7 +111,8 @@ class BallFlight {
         this.apex = BALL_APEX_BASE + power * BALL_APEX_POWER;
         this.targetSide = toSide;
         this.active = true;
-        this.updatePosition(0);
+        this.currentPos = { ...start };
+        this.match.emitBallFlight(start, end, this.duration, this.apex);
     }
 
     updatePosition(delta) {
@@ -116,7 +126,6 @@ class BallFlight {
         const baseZ = this.start.z * inv + this.end.z * t;
         const z = baseZ + this.apex * Math.sin(Math.PI * t);
         this.currentPos = { x, y, z };
-        this.match.emitBallPosition(x, y, z);
         if (t >= 1) {
             this.active = false;
             this.match.onBallArrived(this.targetSide);
@@ -150,7 +159,6 @@ class Match {
         matches.set(this.id, this);
         this.prepareCourt();
         this.spawnNpc();
-        this.notifyRacketState(true);
         this.player.call('tennis:ballCreate');
         this.sendScore();
         this.message('Тренировка началась. Попробуйте выиграть розыгрыш до пяти очков.', true);
@@ -170,6 +178,9 @@ class Match {
         const heading = spawn.heading || computeHeading(spawn, this.court.center);
         this.player.heading = heading;
         this.player.call('prompt.hide');
+        this.player.tennisShop = false;
+        this.player.call('tennis:showShopPrompt', [false]);
+        this.player.call('tennis:shopClose');
     }
 
     spawnNpc() {
@@ -239,6 +250,13 @@ class Match {
     handlePlayerHit(player, rawPower) {
         if (!this.running || player !== this.player) return;
         if (!this.awaitingHit) return;
+        const handsItem = inventory && inventory.getHandsItem ? inventory.getHandsItem(player) : null;
+        if (!handsItem || handsItem.itemId !== 148) {
+            this.awaitingHit = false;
+            this.player.call('tennis:awaitHit', [0]);
+            this.awardPoint('npc', 'Вы выпустили ракетку из рук.');
+            return;
+        }
         const power = clamp(Number(rawPower) || 0, 0, 1);
         const ballPos = this.ballFlight.currentPos;
         const playerPos = vectorToObject(this.player.position);
@@ -319,7 +337,6 @@ class Match {
                 this.player.heading = this.backupState.heading;
             }
             this.player.tennisMatch = null;
-            this.notifyRacketState(false);
             this.player.call('tennis:ballDestroy');
             setTimeout(() => {
                 if (player && mp.players.exists(player)) {
@@ -331,14 +348,14 @@ class Match {
         if (this.npcPed && mp.peds.exists(this.npcPed)) this.npcPed.destroy();
     }
 
-    notifyRacketState(active) {
+    emitBallFlight(start, end, duration, apex) {
         if (!this.player || !mp.players.exists(this.player)) return;
-        this.player.call('tennis:racket', [!!active]);
-    }
-
-    emitBallPosition(x, y, z) {
-        if (!this.player || !mp.players.exists(this.player)) return;
-        this.player.call('tennis:ballUpdate', [x, y, z]);
+        this.player.call('tennis:ballFlight', [
+            start.x, start.y, start.z,
+            end.x, end.y, end.z,
+            duration,
+            apex
+        ]);
     }
 }
 
@@ -375,6 +392,50 @@ function setupCourts() {
     });
 }
 
+function setupShop() {
+    if (shopPoint) {
+        const { marker, shape, ped, label } = shopPoint;
+        if (marker && mp.markers.exists(marker)) marker.destroy();
+        if (shape && mp.colshapes.exists(shape)) shape.destroy();
+        if (ped && mp.peds.exists(ped)) ped.destroy();
+        if (label && mp.labels.exists(label)) label.destroy();
+    }
+
+    const pos = SHOP_POINT;
+    const marker = mp.markers.new(1, new mp.Vector3(pos.x, pos.y, pos.z - 1.0), 1.2, {
+        color: [120, 200, 255, 120],
+        visible: true,
+        dimension: 0
+    });
+    const shape = mp.colshapes.newSphere(pos.x, pos.y, pos.z, 2.0);
+    shape.onEnter = (player) => {
+        player.tennisShop = true;
+        player.call('tennis:showShopPrompt', [true]);
+    };
+    shape.onExit = (player) => {
+        player.tennisShop = false;
+        player.call('tennis:showShopPrompt', [false]);
+        player.call('tennis:shopClose');
+    };
+    const ped = mp.peds.new(SHOP_PED_MODEL, new mp.Vector3(pos.x, pos.y, pos.z), {
+        heading: pos.heading || 0,
+        dimension: 0,
+        dynamic: true
+    });
+    if (ped) {
+        try { ped.heading = pos.heading || 0; } catch (e) {}
+        try { ped.freezePosition(true); } catch (e) {}
+        try { ped.setInvincible(true); } catch (e) {}
+    }
+    const label = mp.labels.new('Теннисный магазин', new mp.Vector3(pos.x, pos.y, pos.z + 1.0), {
+        dimension: 0,
+        drawDistance: 10,
+        los: true
+    });
+
+    shopPoint = { marker, shape, ped, label };
+}
+
 function courtById(id) {
     return COURTS.find(c => c.id === id) || null;
 }
@@ -388,8 +449,11 @@ function isCourtBusy(courtId) {
 
 module.exports = {
     init(deps) {
-        notifications = deps.notifications;
+        notifications = deps.notifications || notifications || call('notifications');
+        inventory = deps.inventory || inventory || call('inventory');
+        money = deps.money || money || call('money');
         setupCourts();
+        setupShop();
         ensureTick();
     },
     onEnterCourt(player, courtId) {
@@ -404,6 +468,11 @@ module.exports = {
         if (!player.character) return;
         if (player.tennisMatch) {
             if (notifications) notifications.error(player, 'Вы уже играете в теннис.', 'Теннис');
+            return;
+        }
+        const handsItem = inventory && inventory.getHandsItem ? inventory.getHandsItem(player) : null;
+        if (!handsItem || handsItem.itemId !== 148) {
+            if (notifications) notifications.error(player, 'Возьмите в руки теннисную ракетку, чтобы начать матч.', 'Теннис');
             return;
         }
         const court = COURTS[0];
@@ -426,6 +495,56 @@ module.exports = {
     onPlayerQuit(player) {
         if (!player.tennisMatch) return;
         player.tennisMatch.stopForced('Соперник покинул игру.');
+    },
+    openShop(player) {
+        if (!player.character) return;
+        if (!player.tennisShop) {
+            if (notifications) notifications.error(player, 'Подойдите ближе к продавцу тенниса.', 'Теннис');
+            return;
+        }
+        const menuItems = SHOP_ITEMS.map((item, index) => ({
+            text: `${item.name} [$${item.price}]`,
+            buyIndex: index
+        }));
+        menuItems.push({ text: 'Закрыть' });
+        player.call('tennis:shopOpen', [JSON.stringify(menuItems)]);
+    },
+    buyShopItem(player, rawIndex) {
+        if (!player.character) return;
+        if (!player.tennisShop) {
+            if (notifications) notifications.error(player, 'Вы далеко от продавца.', 'Теннис');
+            return;
+        }
+        const index = parseInt(rawIndex, 10);
+        if (Number.isNaN(index) || index < 0 || index >= SHOP_ITEMS.length) return;
+        const entry = SHOP_ITEMS[index];
+        if (!entry) return;
+        if (!inventory || !money) return;
+        if (player.character.cash < entry.price) {
+            if (notifications) notifications.error(player, 'Недостаточно наличных средств.', 'Теннис');
+            return;
+        }
+        const cantAdd = inventory.cantAdd(player, entry.itemId, entry.params || {});
+        if (cantAdd) {
+            if (notifications) notifications.error(player, cantAdd, 'Теннис');
+            return;
+        }
+        money.removeCash(player, entry.price, (success) => {
+            if (!success) {
+                if (notifications) notifications.error(player, 'Ошибка списания наличных.', 'Теннис');
+                return;
+            }
+            inventory.addItem(player, entry.itemId, entry.params || {}, (error) => {
+                if (error) {
+                    if (notifications) notifications.error(player, error, 'Теннис');
+                    return;
+                }
+                if (notifications) notifications.success(player, `Вы приобрели ${entry.name}.`, 'Теннис');
+            });
+        }, `Покупка теннисного снаряжения #${entry.itemId}`);
+    },
+    closeShop(player) {
+        if (player) player.call('selectMenu.hide');
     }
 };
 
