@@ -4,6 +4,18 @@ const CHARGE_TIME = 1200;
 const SCORE_DISPLAY_TIME = 4000;
 const HIT_TIMEOUT = 2500;
 
+const RACKET_MODEL = mp.game.joaat('prop_tennis_rack_01');
+const BALL_MODEL = mp.game.joaat('prop_tennis_ball');
+const RACKET_BONE = 57005;
+const RACKET_OFFSET = { x: 0.12, y: 0.02, z: 0.0 };
+const RACKET_ROT = { x: -90.0, y: 0.0, z: 0.0 };
+
+let racketObj = null;
+let racketTimer = null;
+let ballObj = null;
+let ballTimer = null;
+let pendingBallPos = null;
+
 const state = {
     insideZone: false,
     active: false,
@@ -18,15 +30,86 @@ const state = {
     messageUntil: 0
 };
 
-if (mp.attachmentMngr) {
-    mp.attachmentMngr.register('tennis_racket', 'prop_tennis_rack_01', 57005,
-        new mp.Vector3(0.12, 0.02, 0.0), new mp.Vector3(-90.0, 0.0, 0.0));
-}
-
 function canUseKey() {
     if (mp.gui.cursor.visible) return false;
     if (mp.chat && typeof mp.chat.active !== 'undefined' && mp.chat.active) return false;
     return true;
+}
+
+function destroyRacket() {
+    if (racketTimer) {
+        clearTimeout(racketTimer);
+        racketTimer = null;
+    }
+    if (racketObj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(racketObj)) {
+        racketObj.destroy();
+    }
+    racketObj = null;
+}
+
+function spawnRacket() {
+    destroyRacket();
+    if (!mp.game.streaming.isModelInCdimage(RACKET_MODEL)) return;
+    mp.game.streaming.requestModel(RACKET_MODEL);
+    racketTimer = setTimeout(() => {
+        racketTimer = null;
+        const player = mp.players.local;
+        if (!player || !player.handle) return;
+        if (!mp.game.streaming.hasModelLoaded(RACKET_MODEL)) return;
+        racketObj = mp.objects.new(RACKET_MODEL, player.position, {
+            dimension: player.dimension
+        });
+        if (!racketObj) return;
+        const bone = player.getBoneIndex(RACKET_BONE);
+        if (bone === -1) return;
+        racketObj.attachTo(player.handle, bone,
+            RACKET_OFFSET.x, RACKET_OFFSET.y, RACKET_OFFSET.z,
+            RACKET_ROT.x, RACKET_ROT.y, RACKET_ROT.z,
+            false, false, false, false, 2, true);
+    }, 120);
+}
+
+function destroyBall() {
+    if (ballTimer) {
+        clearTimeout(ballTimer);
+        ballTimer = null;
+    }
+    pendingBallPos = null;
+    if (ballObj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(ballObj)) {
+        ballObj.destroy();
+    }
+    ballObj = null;
+}
+
+function ensureBallObject() {
+    if (ballObj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(ballObj)) {
+        return ballObj;
+    }
+    if (ballTimer) return null;
+    if (!mp.game.streaming.isModelInCdimage(BALL_MODEL)) return null;
+    mp.game.streaming.requestModel(BALL_MODEL);
+    ballTimer = setTimeout(() => {
+        ballTimer = null;
+        const player = mp.players.local;
+        if (!player || !player.handle) return;
+        if (!mp.game.streaming.hasModelLoaded(BALL_MODEL)) return;
+        ballObj = mp.objects.new(BALL_MODEL, player.position, {
+            dimension: player.dimension
+        });
+        if (ballObj && pendingBallPos) {
+            ballObj.position = pendingBallPos;
+        }
+    }, 120);
+    return null;
+}
+
+function updateBallPosition(pos) {
+    pendingBallPos = pos;
+    if (!pos) return;
+    const obj = ensureBallObject();
+    if (obj && mp.objects && typeof mp.objects.exists === 'function' && mp.objects.exists(obj)) {
+        obj.position = pos;
+    }
 }
 
 function setPrompt(show, name) {
@@ -99,7 +182,26 @@ mp.events.add('tennis:matchEnd', (playerWon, reason) => {
     state.deadline = 0;
     state.lastMessage = text;
     state.messageUntil = Date.now() + SCORE_DISPLAY_TIME;
+    destroyBall();
+    destroyRacket();
     if (state.insideZone) setPrompt(true, state.courtName);
+});
+
+mp.events.add('tennis:racket', (enable) => {
+    if (enable) spawnRacket();
+    else destroyRacket();
+});
+
+mp.events.add('tennis:ballCreate', () => {
+    ensureBallObject();
+});
+
+mp.events.add('tennis:ballUpdate', (x, y, z) => {
+    updateBallPosition(new mp.Vector3(x, y, z));
+});
+
+mp.events.add('tennis:ballDestroy', () => {
+    destroyBall();
 });
 
 mp.events.add('tennis:awaitHit', (deadline) => {

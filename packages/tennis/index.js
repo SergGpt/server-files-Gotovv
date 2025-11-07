@@ -23,7 +23,6 @@ const COURTS = [
     }
 ];
 
-const BALL_MODEL = mp.joaat("prop_tennis_ball");
 const RACKET_MODEL = mp.joaat("prop_tennis_rack_01");
 const NPC_MODEL = mp.joaat("s_m_y_airworker");
 
@@ -117,10 +116,7 @@ class BallFlight {
         const baseZ = this.start.z * inv + this.end.z * t;
         const z = baseZ + this.apex * Math.sin(Math.PI * t);
         this.currentPos = { x, y, z };
-        const obj = this.match.ballObj;
-        if (obj && mp.objects.exists(obj)) {
-            obj.position = new mp.Vector3(x, y, z);
-        }
+        this.match.emitBallPosition(x, y, z);
         if (t >= 1) {
             this.active = false;
             this.match.onBallArrived(this.targetSide);
@@ -141,7 +137,6 @@ class Match {
         this.hitDeadline = 0;
         this.npcPed = null;
         this.npcRacket = null;
-        this.ballObj = null;
         this.ballFlight = new BallFlight(this);
         this.backupState = null;
         this.serveSide = 'npc';
@@ -155,7 +150,8 @@ class Match {
         matches.set(this.id, this);
         this.prepareCourt();
         this.spawnNpc();
-        this.spawnBall();
+        this.notifyRacketState(true);
+        this.player.call('tennis:ballCreate');
         this.sendScore();
         this.message('Тренировка началась. Попробуйте выиграть розыгрыш до пяти очков.', true);
         this.player.call('tennis:matchStart', [this.court.name]);
@@ -173,9 +169,6 @@ class Match {
         this.player.position = new mp.Vector3(spawn.x, spawn.y, spawn.z);
         const heading = spawn.heading || computeHeading(spawn, this.court.center);
         this.player.heading = heading;
-        if (typeof this.player.addAttachment === 'function') {
-            this.player.addAttachment('tennis_racket');
-        }
         this.player.call('prompt.hide');
     }
 
@@ -188,8 +181,8 @@ class Match {
         if (this.npcPed) {
             this.npcPed.heading = spawn.heading || computeHeading(spawn, this.court.center);
             this.npcPed.setVariable('tennisTrainer', true);
-            this.npcPed.freezePosition(true);
             try { this.npcPed.setInvincible(true); } catch (e) {}
+            try { this.npcPed.taskStandStill(-1); } catch (e) {}
         }
         this.npcRacket = mp.objects.new(RACKET_MODEL, new mp.Vector3(spawn.x, spawn.y, spawn.z), {
             dimension: this.dimension
@@ -204,13 +197,6 @@ class Match {
                     false, false, false, false, 2, true);
             } catch (e) {}
         }, 250);
-    }
-
-    spawnBall() {
-        const center = this.court.center;
-        this.ballObj = mp.objects.new(BALL_MODEL, new mp.Vector3(center.x, center.y, center.z + 1.0), {
-            dimension: this.dimension
-        });
     }
 
     getHitPosition(side) {
@@ -327,24 +313,32 @@ class Match {
         matches.delete(this.id);
         if (this.player && mp.players.exists(this.player)) {
             const player = this.player;
-            if (typeof this.player.addAttachment === 'function') {
-                this.player.addAttachment('tennis_racket', true);
-            }
             if (this.backupState) {
                 this.player.dimension = this.backupState.dimension;
                 this.player.position = new mp.Vector3(this.backupState.position.x, this.backupState.position.y, this.backupState.position.z);
                 this.player.heading = this.backupState.heading;
             }
             this.player.tennisMatch = null;
+            this.notifyRacketState(false);
+            this.player.call('tennis:ballDestroy');
             setTimeout(() => {
                 if (player && mp.players.exists(player)) {
                     player.call('tennis:showPrompt', [true, this.court.name]);
                 }
             }, 300);
         }
-        if (this.ballObj && mp.objects.exists(this.ballObj)) this.ballObj.destroy();
         if (this.npcRacket && mp.objects.exists(this.npcRacket)) this.npcRacket.destroy();
         if (this.npcPed && mp.peds.exists(this.npcPed)) this.npcPed.destroy();
+    }
+
+    notifyRacketState(active) {
+        if (!this.player || !mp.players.exists(this.player)) return;
+        this.player.call('tennis:racket', [!!active]);
+    }
+
+    emitBallPosition(x, y, z) {
+        if (!this.player || !mp.players.exists(this.player)) return;
+        this.player.call('tennis:ballUpdate', [x, y, z]);
     }
 }
 
