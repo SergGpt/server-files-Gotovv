@@ -44,6 +44,7 @@ let nextMatchId = 1;
 let notifications = null;
 let inventory = null;
 let money = null;
+let chat = null;
 let tickTimer = null;
 let courtShapes = [];
 let shopPoint = null;
@@ -413,7 +414,17 @@ class Match {
     debug(text) {
         if (!text) return;
         if (!this.player || !mp.players.exists(this.player)) return;
-        this.player.call('tennis:debug', [String(text)]);
+        const payload = String(text);
+        let pushed = false;
+        if (chat && typeof chat.push === 'function') {
+            try {
+                chat.push(this.player, `!{#d6ff9a}[Теннис] ${payload}`);
+                pushed = true;
+            } catch (e) {}
+        }
+        if (!pushed) {
+            try { this.player.call('tennis:debug', [payload]); } catch (e) {}
+        }
     }
 
     finish(playerWon, reason) {
@@ -591,6 +602,7 @@ module.exports = {
         notifications = deps.notifications || notifications || call('notifications');
         inventory = deps.inventory || inventory || call('inventory');
         money = deps.money || money || call('money');
+        chat = deps.chat || chat || call('chat');
         setupCourts();
         setupShop();
         ensureTick();
@@ -629,7 +641,17 @@ module.exports = {
     handlePlayerHit(player, power, hitX, hitY, hitZ) {
         const match = player.tennisMatch;
         if (!match) {
-            try { player.call('tennis:debug', ['server: hit received без активного матча']); } catch (e) {}
+            const debugMsg = 'server: hit received без активного матча';
+            let pushed = false;
+            if (chat && typeof chat.push === 'function') {
+                try {
+                    chat.push(player, `!{#d6ff9a}[Теннис] ${debugMsg}`);
+                    pushed = true;
+                } catch (e) {}
+            }
+            if (!pushed) {
+                try { player.call('tennis:debug', [debugMsg]); } catch (e) {}
+            }
             return;
         }
         match.handlePlayerHit(player, power, hitX, hitY, hitZ);
