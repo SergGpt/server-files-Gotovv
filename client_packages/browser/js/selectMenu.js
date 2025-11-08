@@ -9232,6 +9232,73 @@ var selectMenu = new Vue({
                         selectMenu.show = false;
                 }
             },
+            "pawnshop": {
+                name: "pawnshop",
+                header: "Скупщик",
+                items: [
+                    { text: "Предметы", values: ["Нет данных"] },
+                    { text: "Продать 1 предмет", values: ["$0"] },
+                    { text: "Продать все", values: ["$0"] },
+                    { text: "Закрыть" },
+                ],
+                i: 0,
+                j: 0,
+                meta: {
+                    brokerId: null,
+                    totalCount: 0,
+                },
+                init(data) {
+                    if (typeof data === 'string') data = JSON.parse(data);
+                    this.update(data);
+                },
+                update(data) {
+                    data = data || {};
+                    this.meta.brokerId = data.id || null;
+                    this.meta.totalCount = data.totalCount || 0;
+                    this.items = [];
+
+                    const infoItems = Array.isArray(data.items) ? data.items : [];
+                    if (infoItems.length) {
+                        infoItems.forEach(item => {
+                            const count = item.count != null ? item.count : 0;
+                            const price = item.price != null ? item.price : 0;
+                            const name = item.resolved ? item.name : `${item.name} (не найден)`;
+                            this.items.push({
+                                text: `${name}`,
+                                values: [`${count} шт.`, `$${price}`],
+                            });
+                        });
+                    } else {
+                        this.items.push({ text: 'Предметы', values: ['0 шт.'] });
+                    }
+
+                    this.items.push({ text: 'Всего предметов', values: [`${data.totalCount || 0}`] });
+                    this.items.push({ text: 'Потенциальный доход', values: [`$${data.totalValue || 0}`] });
+
+                    const nextPrice = data.nextPrice || 0;
+                    this.items.push({ text: 'Продать 1 предмет', values: [`$${nextPrice}`], action: 'sellOne' });
+                    this.items.push({ text: 'Продать все', values: [`$${data.totalValue || 0}`], action: 'sellAll' });
+                    this.items.push({ text: 'Закрыть' });
+
+                    this.i = 0;
+                    this.j = 0;
+                },
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    if (!item) return;
+                    if (eventName === 'onItemSelected') {
+                        if (item.action === 'sellOne') {
+                            mp.trigger('callRemote', 'pawnshops.sell.one', this.meta.brokerId);
+                        } else if (item.action === 'sellAll') {
+                            mp.trigger('callRemote', 'pawnshops.sell.all', this.meta.brokerId);
+                        } else if (item.text === 'Закрыть') {
+                            selectMenu.show = false;
+                        }
+                    } else if (eventName === 'onBackspacePressed') {
+                        selectMenu.show = false;
+                    }
+                }
+            },
             "oilRigBuy": {
                 name: "oilRigBuy",
                 header: "Покупка нефти",
