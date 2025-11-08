@@ -11,6 +11,21 @@ const HAND_COMBAT_WEAPON_HASHES = {
     76: mp.game.joaat("weapon_stone_hatchet"),
     67: mp.game.joaat("weapon_crowbar"),
 };
+const HAND_COMBAT_HASH_TO_ITEM = Object.keys(HAND_COMBAT_WEAPON_HASHES).reduce((acc, itemId) => {
+    const hash = HAND_COMBAT_WEAPON_HASHES[itemId];
+    if (hash) acc[hash] = parseInt(itemId, 10);
+    return acc;
+}, {});
+
+const buildHandCombatItem = (itemId, modelName, weaponHash) => ({
+    itemId,
+    model: modelName,
+    params: {
+        model: modelName,
+        weaponHash: weaponHash,
+        health: 100,
+    },
+});
 
 mp.inventory = {
     groundMaxDist: 1.8,
@@ -273,40 +288,38 @@ mp.inventory = {
                 return null;
             }
             if (player.hands) {
-                const weaponHash = player.hands.weaponHash || this.getHandCombatWeaponHash(player.hands.itemId) || mp.game.joaat(player.hands.model);
-                const item = {
-                    itemId: player.hands.itemId,
-                    model: player.hands.model,
-                    params: {
-                        model: player.hands.model,
-                        weaponHash: weaponHash,
-                        health: 100
-                    }
-                };
+                const itemId = player.hands.itemId;
+                const fallbackModel = player.hands.model || this.getHandCombatModel(itemId);
+                const weaponHash = player.hands.weaponHash || this.getHandCombatWeaponHash(itemId) || (fallbackModel ? mp.game.joaat(fallbackModel) : 0);
+                if (fallbackModel && !player.hands.model) player.hands.model = fallbackModel;
+                if (weaponHash && !player.hands.weaponHash) player.hands.weaponHash = weaponHash;
+                const item = buildHandCombatItem(itemId, fallbackModel, weaponHash);
                 console.log(`[Inventory] getHandsItem: Returning item for player ${player.remoteId}`, item);
                 return item;
             }
 
             const handsVar = player.getVariable ? player.getVariable("hands") : null;
-            if (!handsVar) {
-                console.log(`[Inventory] getHandsItem: No item in hands for player ${player.remoteId}`);
-                return null;
+            if (handsVar) {
+                const info = this.itemsInfo ? this.itemsInfo[handsVar] : null;
+                const modelName = (info && info.model) || this.getHandCombatModel(handsVar);
+                const weaponHash = this.getHandCombatWeaponHash(handsVar) || (modelName ? mp.game.joaat(modelName) : 0);
+                const item = buildHandCombatItem(handsVar, modelName, weaponHash);
+                console.log(`[Inventory] getHandsItem: Fallback item for player ${player.remoteId}`, item);
+                return item;
             }
 
-            const info = this.itemsInfo ? this.itemsInfo[handsVar] : null;
-            const modelName = (info && info.model) || this.getHandCombatModel(handsVar);
-            const weaponHash = this.getHandCombatWeaponHash(handsVar) || (modelName ? mp.game.joaat(modelName) : 0);
-            const item = {
-                itemId: handsVar,
-                model: modelName,
-                params: {
-                    model: modelName,
-                    weaponHash: weaponHash,
-                    health: 100
-                }
-            };
-            console.log(`[Inventory] getHandsItem: Fallback item for player ${player.remoteId}`, item);
-            return item;
+            const currentWeapon = typeof player.weapon === 'number' ? player.weapon : parseInt(player.weapon || 0);
+            const combatItemId = HAND_COMBAT_HASH_TO_ITEM[currentWeapon];
+            if (combatItemId) {
+                const modelName = this.getHandCombatModel(combatItemId);
+                const weaponHash = this.getHandCombatWeaponHash(combatItemId) || currentWeapon;
+                const item = buildHandCombatItem(combatItemId, modelName, weaponHash);
+                console.log(`[Inventory] getHandsItem: Derived from weapon hash for player ${player.remoteId}`, item);
+                return item;
+            }
+
+            console.log(`[Inventory] getHandsItem: No item in hands for player ${player.remoteId}`);
+            return null;
         } catch (e) {
             console.error(`[Inventory] Error in getHandsItem: ${e.message}`);
             return null;
@@ -336,7 +349,7 @@ mp.inventory = {
                     }
                 }
 
-                if (mp.objects.exists(player.hands.object)) {
+                if (player.hands.object && mp.objects.exists(player.hands.object)) {
                     player.hands.object.destroy();
                 }
                 delete player.hands;
@@ -351,14 +364,33 @@ mp.inventory = {
 
             try {
                 const info = this.itemsInfo[itemId];
+                const fallbackModel = (info && info.model) || this.getHandCombatModel(itemId);
                 if (!info) {
-                    console.error(`No info found for item ${itemId}`);
+                    if (fallbackModel) {
+                        player.hands = {
+                            itemId,
+                            model: fallbackModel,
+                            weaponHash: this.getHandCombatWeaponHash(itemId) || mp.game.joaat(fallbackModel),
+                            object: null,
+                        };
+                    } else {
+                        console.error(`No info found for item ${itemId}`);
+                    }
                     return;
                 }
 
                 const attachInfo = info.attachInfo;
                 if (!attachInfo) {
-                    console.error(`No attachInfo found for item ${itemId}`);
+                    if (fallbackModel) {
+                        player.hands = {
+                            itemId,
+                            model: fallbackModel,
+                            weaponHash: this.getHandCombatWeaponHash(itemId) || mp.game.joaat(fallbackModel),
+                            object: null,
+                        };
+                    } else {
+                        console.error(`No attachInfo found for item ${itemId}`);
+                    }
                     return;
                 }
 

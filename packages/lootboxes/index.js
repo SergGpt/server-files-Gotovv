@@ -87,7 +87,23 @@ module.exports = {
             return outError('Возьмите в руки монтировку');
         }
 
-        const crowbarHealth = inventory.getParam(crowbar, 'health');
+        const ensureParam = (key, value) => inventory.updateParam(player, crowbar, key, value);
+        let rearmed = false;
+
+        const weaponParam = inventory.getParam(crowbar, 'weaponHash');
+        if (!weaponParam) {
+            ensureParam('weaponHash', mp.joaat('weapon_crowbar'));
+            rearmed = true;
+        }
+
+        const modelParam = inventory.getParam(crowbar, 'model');
+        if (!modelParam) ensureParam('model', 'weapon_crowbar');
+
+        let crowbarHealth = inventory.getParam(crowbar, 'health');
+        if (!crowbarHealth) crowbarHealth = ensureParam('health', 100);
+
+        if (rearmed) inventory.syncHandsItem(player, crowbar);
+
         if (crowbarHealth && crowbarHealth.value <= 0) {
             return outError('Монтировка сломана');
         }

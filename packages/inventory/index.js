@@ -859,11 +859,24 @@ getName(itemId) {
         return params;
     },
     updateParam(player, item, key, value) {
-        var param = this.getParam(item, key);
-        if (!param) return;
-        param.value = value;
+        if (!item) return null;
+        if (!item.params) item.params = [];
+
+        let param = this.getParam(item, key);
+        if (!param) {
+            param = db.Models.CharacterInventoryParam.build({
+                itemId: item.id,
+                key,
+                value
+            });
+            item.params.push(param);
+        } else {
+            param.value = value;
+        }
+
         param.save();
-        player.call(`inventory.setItemParam`, [item.id, key, value]);
+        if (player && player.call) player.call(`inventory.setItemParam`, [item.id, key, value]);
+        return param;
     },
     findFreeSlot(player, itemId) {
         // debug(`findFreeSlot | itemId: ${itemId}`)
