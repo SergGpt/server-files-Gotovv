@@ -1,6 +1,6 @@
 "use strict";
 
-const CROWBAR_ITEM_ID = 203;
+const CROWBAR_ITEM_ID = 67;
 const CROWBAR_HASH = mp.game.joaat('weapon_crowbar');
 
 mp.lootboxes = {

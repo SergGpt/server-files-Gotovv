@@ -3,10 +3,10 @@ let world = call('world');
 module.exports = {
     "/worldadd": {
         access: 3,
-        description: "Добавить объект мира. Позиция берется от игрока.<br/>Хеш - по-умолчанию ставить 0.<br/>Типы: 1 - дерево, 2 - камень, 203 - ящик с лутом",
+        description: "Добавить объект мира. Позиция берется от игрока.<br/>Хеш - по-умолчанию ставить 0.<br/>Типы: 1 - дерево, 2 - камень, 67 - ящик с лутом",
         args: "[тип]:n [радиус]:n [хеш]:n [название]",
         handler: (player, args, out) => {
-            const allowedTypes = [0, 1, 2, 203];
+            const allowedTypes = [0, 1, 2, 67];
             if (!allowedTypes.includes(args[0])) {
                 return out.error(`Неверный тип объекта. Разрешены: ${allowedTypes.join(', ')}`, player);
             }
@@ -72,7 +72,7 @@ module.exports = {
     },
     "/worldsetpos": {
         access: 3,
-        description: "Изменить позицию объекта мира. Позиция берется от игрока.<br/>Хеш - по-умолчанию ставить 0.<br/>Типы: 1 - дерево, 2 - камень, 203 - ящик с лутом",
+        description: "Изменить позицию объекта мира. Позиция берется от игрока.<br/>Хеш - по-умолчанию ставить 0.<br/>Типы: 1 - дерево, 2 - камень, 67 - ящик с лутом",
         args: "[ид]:n",
         handler: (player, args, out) => {
             if (!world.colshapes[args[0]]) return out.error(`Объект мира #${args[0]} не найден`, player);

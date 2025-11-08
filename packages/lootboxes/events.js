@@ -9,7 +9,7 @@ module.exports = {
         await lootboxes.hitCrate(player);
     },
     "playerEnterWorldObject": (player, colshape) => {
-        if (colshape.db.type !== lootboxes.crateWorldType) return;
+        if (!colshape?.db || colshape.db.type !== lootboxes.crateWorldType) return;
 
         if (colshape.destroyTime && Date.now() - colshape.destroyTime > lootboxes.respawnTime) {
             colshape.health = lootboxes.crateMaxHealth;
@@ -19,7 +19,7 @@ module.exports = {
         lootboxes.onPlayerEnter(player, colshape);
     },
     "playerExitWorldObject": (player, colshape) => {
-        if (colshape.db.type !== lootboxes.crateWorldType) return;
+        if (!colshape?.db || colshape.db.type !== lootboxes.crateWorldType) return;
         lootboxes.onPlayerExit(player, colshape);
     },
 };
