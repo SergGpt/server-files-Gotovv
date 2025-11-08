@@ -1,5 +1,17 @@
 "use strict";
 
+const HAND_COMBAT_ITEM_IDS = new Set([64, 76, 67]);
+const HAND_COMBAT_MODELS = {
+    64: "weapon_hatchet",
+    76: "weapon_stone_hatchet",
+    67: "weapon_crowbar",
+};
+const HAND_COMBAT_WEAPON_HASHES = {
+    64: mp.game.joaat("weapon_hatchet"),
+    76: mp.game.joaat("weapon_stone_hatchet"),
+    67: mp.game.joaat("weapon_crowbar"),
+};
+
 mp.inventory = {
     groundMaxDist: 1.8,
     lastArmour: 0,
@@ -157,6 +169,15 @@ mp.inventory = {
     setThirst(val) {
         mp.callCEFV(`inventory.thirst = ${val}`)
     },
+    isHandCombatItem(itemId) {
+        return HAND_COMBAT_ITEM_IDS.has(itemId);
+    },
+    getHandCombatModel(itemId) {
+        return HAND_COMBAT_MODELS[itemId] || null;
+    },
+    getHandCombatWeaponHash(itemId) {
+        return HAND_COMBAT_WEAPON_HASHES[itemId] || 0;
+    },
     setArmour(val) {
         if (this.lastArmour == val) return;
         this.lastArmour = val;
@@ -251,20 +272,40 @@ mp.inventory = {
                 console.log(`[Inventory] getHandsItem failed: Invalid player`);
                 return null;
             }
-            if (!player.hands) {
+            if (player.hands) {
+                const weaponHash = player.hands.weaponHash || this.getHandCombatWeaponHash(player.hands.itemId) || mp.game.joaat(player.hands.model);
+                const item = {
+                    itemId: player.hands.itemId,
+                    model: player.hands.model,
+                    params: {
+                        model: player.hands.model,
+                        weaponHash: weaponHash,
+                        health: 100
+                    }
+                };
+                console.log(`[Inventory] getHandsItem: Returning item for player ${player.remoteId}`, item);
+                return item;
+            }
+
+            const handsVar = player.getVariable ? player.getVariable("hands") : null;
+            if (!handsVar) {
                 console.log(`[Inventory] getHandsItem: No item in hands for player ${player.remoteId}`);
                 return null;
             }
+
+            const info = this.itemsInfo ? this.itemsInfo[handsVar] : null;
+            const modelName = (info && info.model) || this.getHandCombatModel(handsVar);
+            const weaponHash = this.getHandCombatWeaponHash(handsVar) || (modelName ? mp.game.joaat(modelName) : 0);
             const item = {
-                itemId: player.hands.itemId,
-                model: player.hands.model,
+                itemId: handsVar,
+                model: modelName,
                 params: {
-                    model: player.hands.model,
-                    weaponHash: mp.game.joaat(player.hands.model),
-                    health: 100 // Предполагаем, что здоровье предмета хранится где-то еще
+                    model: modelName,
+                    weaponHash: weaponHash,
+                    health: 100
                 }
             };
-            console.log(`[Inventory] getHandsItem: Returning item for player ${player.remoteId}`, item);
+            console.log(`[Inventory] getHandsItem: Fallback item for player ${player.remoteId}`, item);
             return item;
         } catch (e) {
             console.error(`[Inventory] Error in getHandsItem: ${e.message}`);
@@ -443,7 +484,8 @@ mp.inventory = {
                     itemId: itemId,
                     bone: targetBone,
                     boneIndex: boneIndex,
-                    model: modelName
+                    model: modelName,
+                    weaponHash: this.getHandCombatWeaponHash(itemId) || mp.game.joaat(modelName)
                 };
 
                 console.log(`✓ Attached ${modelName} (item ${itemId}) to bone ${targetBone}`);
@@ -689,7 +731,8 @@ mp.events.add("render", () => {
         mp.inventory.groundItemMarker.position = pos;
         mp.inventory.groundItemMarker.visible = true;
     } else mp.inventory.groundItemMarker.visible = false;
-    if (player.getVariable("hands")) {
+    const handsItemId = player.getVariable("hands");
+    if (handsItemId && !mp.inventory.isHandCombatItem(handsItemId)) {
         mp.game.controls.disableControlAction(0, 24, true); /// удары
         mp.game.controls.disableControlAction(0, 25, true); /// INPUT_AIM
         mp.game.controls.disableControlAction(0, 140, true); /// удары R
