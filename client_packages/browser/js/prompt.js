@@ -146,6 +146,12 @@ var prompt = new Vue({
             "woodman_log_start_ax": {
                 text: "Нажмите <span>ЛКМ</span>, чтобы начать рубить бревно",
             },
+            "lootbox_take_crowbar": {
+                text: "Достаньте монтировку, чтобы вскрыть ящик",
+            },
+            "lootbox_start_break": {
+                text: "Нажмите <span>ЛКМ</span>, чтобы начать вскрывать ящик",
+            },
             "mason_take_pick": {
                 text: "Достаньте кирку, чтобы добыть камень",
             },
