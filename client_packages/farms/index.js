@@ -134,10 +134,10 @@ mp.events.add({
         mp.callCEFV(`(function(){var info=${JSON.stringify(data)};if(selectMenu.menus['farmsMain'])selectMenu.menus['farmsMain'].update(info);if(selectMenu.menus['farmsVendor'])selectMenu.menus['farmsVendor'].update(info);})()`);
     },
     'farms.menu.hide': () => {
-        mp.callCEFV(`if (selectMenu.current && selectMenu.current.name === 'farmsMain') selectMenu.show = false;`);
+        mp.callCEFV(`if (selectMenu.menu && selectMenu.menu.name === 'farmsMain') selectMenu.show = false;`);
     },
     'farms.vendor.hide': () => {
-        mp.callCEFV(`if (selectMenu.current && selectMenu.current.name === 'farmsVendor') selectMenu.show = false;`);
+        mp.callCEFV(`if (selectMenu.menu && selectMenu.menu.name === 'farmsVendor') selectMenu.show = false;`);
     },
     'farms.reset': () => {
         clearMarkers();
