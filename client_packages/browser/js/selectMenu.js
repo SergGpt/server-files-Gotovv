@@ -1785,6 +1785,33 @@ var selectMenu = new Vue({
                     }
                 }
             },
+            "autoRobberJob": {
+                name: "autoRobberJob",
+                header: "Автоугон",
+                items: [{
+                        text: "Взять заказ",
+                    },
+                    {
+                        text: "Закрыть",
+                    }
+                ],
+                i: 0,
+                j: 0,
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    if (eventName == 'onItemSelected') {
+                        if (item.text == 'Взять заказ') {
+                            mp.trigger('autoroober.menu.accept');
+                        }
+                        if (item.text == 'Закрыть') {
+                            mp.trigger('autoroober.menu.close');
+                        }
+                    }
+                    if (eventName == 'onBackspacePressed' || eventName == 'onEscapePressed') {
+                        mp.trigger('autoroober.menu.close');
+                    }
+                }
+            },
             "fishingMenu": {
                 name: "fishing",
                 header: "Рыбалка",

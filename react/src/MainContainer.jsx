@@ -10,6 +10,7 @@ import Biz from './modules/biz';
 import Bank from './modules/bank';
 import Players from './modules/players';
 import ErrorBoundary from './Error';
+import Families from './modules/families';
 
 class MainContainer extends Component {
     constructor(props) {
@@ -28,6 +29,7 @@ class MainContainer extends Component {
                 { forms.business && <ErrorBoundary><Biz /> </ErrorBoundary>}
                 { forms.bank && <ErrorBoundary><Bank /></ErrorBoundary> }
                 { forms.players && <ErrorBoundary><Players /> </ErrorBoundary>}
+                { forms.families && <ErrorBoundary><Families /> </ErrorBoundary>}
             </Fragment>
         );
     }

@@ -15,7 +15,7 @@ module.exports = {
         var header = `Устройство на работу`;
         var job = jobs.getJob(jobId);
         if (!job) return notifs.error(player, `Работа #${jobId} не найдена`, header);
-        if (player.character.factionId && !factions.isCrimeFaction(player.character.factionId)) return notifs.error(player, `Вы состоите в ${factions.getFactionName(player)}`, header);
+        if (player.character.factionId && !factions.isCrimeFaction(player.character.factionId) && job.id !== 4) return notifs.error(player, `Вы состоите в ${factions.getFactionName(player)}`, header);
         if (player.character.job == job.id) return notifs.error(player, `Вы уже ${job.name}`, header);
         if (player.character.job) jobs.clearJobApps(player);
         jobs.addMember(player, job);

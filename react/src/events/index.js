@@ -11,6 +11,7 @@ import bizFaction from './biz.faction';
 import taxiClient from './taxi.client';
 import taxiDriver from './taxi.driver';
 import bank from './bank';
+import families from './families';
 
 export const PlayerEvents = (dispatch, getState) => {
     chat(myEventEmmiter, dispatch);
@@ -24,6 +25,7 @@ export const PlayerEvents = (dispatch, getState) => {
     taxiClient(myEventEmmiter, dispatch);
     taxiDriver(myEventEmmiter, dispatch);
     bank(myEventEmmiter, dispatch);
+    families(myEventEmmiter, dispatch, getState);
 };
 
 

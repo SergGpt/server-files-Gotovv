@@ -1,6 +1,5 @@
 let money = require('../money');
 let notifs = require('../notifications');
-let factions = call('factions');
 
 module.exports = {
     // Работы
@@ -23,7 +22,6 @@ module.exports = {
     },
     addMember(player, job) {
         if (!player.character) return;
-        if (player.character.factionId && !factions.isCrimeFaction(player.character.factionId)) return;
         if (typeof job == 'number') job = this.getJob(job);
         if (player.farmJob && job.id != 5) mp.events.call("farms.job.stop", player);
 
