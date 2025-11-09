@@ -7219,6 +7219,187 @@ var selectMenu = new Vue({
                     }
                 }
             },
+            "moonshineFarm": {
+                name: "moonshineFarm",
+                header: "Самогоноварение",
+                items: [
+                    { text: "Уровень", values: ["0 / 20"] },
+                    { text: "Прогресс", values: ["0%"] },
+                    { text: "Семена", values: ["0"] },
+                    { text: "Тростник", values: ["0"] },
+                    { text: "Пустые бутылки", values: ["0"] },
+                    { text: "Всего собрано", values: ["0"] },
+                    { text: "Всего перегнано", values: ["0"] },
+                    { text: "До следующего уровня", values: ["0"] },
+                    { text: "Навык варщика", values: ["0%"] },
+                    { text: "Максимальный рецепт", values: ["1 бутылка"] },
+                    { text: "Помощь" },
+                    { text: "Закрыть" },
+                ],
+                i: 0,
+                j: 0,
+                data: null,
+                applyData(data) {
+                    data = data || {};
+                    var items = this.items;
+                    items[0].values[0] = `${data.level || 0} / ${data.maxLevel || 0}`;
+                    items[1].values[0] = `${data.progress || 0}%`;
+                    items[2].values[0] = `${data.seeds || 0}`;
+                    items[3].values[0] = `${data.cane || 0}`;
+                    items[4].values[0] = `${data.bottles || 0}`;
+                    items[5].values[0] = `${data.totalHarvest || 0}`;
+                    items[6].values[0] = `${data.totalBrewed || 0}`;
+                    items[7].values[0] = data.level >= data.maxLevel ? 'Максимум' : `${data.toNext != null ? data.toNext : 0}`;
+                    items[8].values[0] = `${data.skillPercent || 0}%`;
+                    var maxBatch = data.maxBatch || 1;
+                    var label = maxBatch === 3 ? '3 бутылки' : maxBatch === 2 ? '2 бутылки' : '1 бутылка';
+                    items[9].values[0] = label;
+                },
+                init(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.update(data);
+                },
+                update(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.data = data;
+                    this.applyData(data);
+                },
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    if (eventName == 'onItemSelected') {
+                        if (item.text == 'Помощь') {
+                            modal.showByName('moonshine_help');
+                        } else if (item.text == 'Закрыть') {
+                            selectMenu.show = false;
+                        }
+                    } else if (eventName == 'onBackspacePressed') {
+                        selectMenu.show = false;
+                    }
+                }
+            },
+            "moonshineVendor": {
+                name: "moonshineVendor",
+                header: "Самогоноварение",
+                items: [
+                    { text: "Уровень", values: ["0 / 20"] },
+                    { text: "Прогресс", values: ["0%"] },
+                    { text: "Семена", values: ["0"] },
+                    { text: "Тростник", values: ["0"] },
+                    { text: "Пустые бутылки", values: ["0"] },
+                    { text: "До следующего уровня", values: ["0"] },
+                    { text: "Навык варщика", values: ["0%"] },
+                    { text: "Цена семян", values: ["$0"] },
+                    { text: "Купить семена", values: ["1 шт", "5 шт", "10 шт"], i: 0 },
+                    { text: "Закончить работу" },
+                    { text: "Помощь" },
+                    { text: "Закрыть" },
+                ],
+                i: 0,
+                j: 0,
+                data: null,
+                applyData(data) {
+                    data = data || {};
+                    var items = this.items;
+                    items[0].values[0] = `${data.level || 0} / ${data.maxLevel || 0}`;
+                    items[1].values[0] = `${data.progress || 0}%`;
+                    items[2].values[0] = `${data.seeds || 0}`;
+                    items[3].values[0] = `${data.cane || 0}`;
+                    items[4].values[0] = `${data.bottles || 0}`;
+                    items[5].values[0] = data.level >= data.maxLevel ? 'Максимум' : `${data.toNext != null ? data.toNext : 0}`;
+                    items[6].values[0] = `${data.skillPercent || 0}%`;
+                    items[7].values[0] = `$${data.seedPrice || 0}`;
+                },
+                init(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    if (this.items[8].i == null) this.items[8].i = 0;
+                    this.update(data);
+                },
+                update(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    if (this.items[8].i == null) this.items[8].i = 0;
+                    this.data = data;
+                    this.applyData(data);
+                },
+                getSelectedAmount() {
+                    var item = this.items[8];
+                    var index = item.i || 0;
+                    var options = [1, 5, 10];
+                    index = Math.clamp(index, 0, options.length - 1);
+                    return options[index];
+                },
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    if (eventName == 'onItemSelected') {
+                        if (item.text == 'Купить семена') {
+                            var amount = this.getSelectedAmount();
+                            mp.trigger('callRemote', 'moonshine.seed.buy', amount);
+                        } else if (item.text == 'Закончить работу') {
+                            selectMenu.show = false;
+                            mp.trigger('callRemote', 'jobs.leave');
+                        } else if (item.text == 'Помощь') {
+                            modal.showByName('moonshine_help');
+                        } else if (item.text == 'Закрыть') {
+                            selectMenu.show = false;
+                        }
+                    } else if (eventName == 'onBackspacePressed') {
+                        selectMenu.show = false;
+                    }
+                }
+            },
+            "moonshineCraft": {
+                name: "moonshineCraft",
+                header: "Самогонный аппарат",
+                items: [
+                    { text: "Навык варщика", values: ["0%"] },
+                    { text: "Сахарный тростник", values: ["0 шт."] },
+                    { text: "Пустые бутылки", values: ["0 шт."] },
+                    { text: "Рецепт", values: ["Недоступно"], i: 0 },
+                    { text: "Скрафтить" },
+                    { text: "Закрыть" },
+                ],
+                i: 0,
+                j: 0,
+                data: null,
+                init(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.update(data);
+                },
+                update(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.data = data || {};
+                    var items = this.items;
+                    items[0].values[0] = `${this.data.skillPercent || 0}%`;
+                    items[1].values[0] = `${this.data.cane || 0} шт.`;
+                    items[2].values[0] = `${this.data.bottles || 0} шт.`;
+                    var options = Array.isArray(this.data.options) && this.data.options.length ? this.data.options : ['Недоступно'];
+                    items[3].values = options;
+                    if (options.length <= 1) items[3].i = 0;
+                    else if (items[3].i == null || items[3].i >= options.length) items[3].i = 0;
+                },
+                getSelectedAmount() {
+                    if (!this.data || !Array.isArray(this.data.options) || !this.data.options.length || (this.data.maxBatch || 0) <= 0) return 0;
+                    var index = this.items[3].i || 0;
+                    index = Math.clamp(index, 0, this.data.options.length - 1);
+                    return index + 1;
+                },
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    if (eventName == 'onItemSelected') {
+                        if (item.text == 'Скрафтить') {
+                            var amount = this.getSelectedAmount();
+                            if (amount <= 0) {
+                                modal.showByName('moonshine_help');
+                                return;
+                            }
+                            mp.trigger('callRemote', 'moonshine.craft.request', amount);
+                        } else if (item.text == 'Закрыть') {
+                            selectMenu.show = false;
+                        }
+                    } else if (eventName == 'onBackspacePressed') {
+                        selectMenu.show = false;
+                    }
+                }
+            },
             "mason": {
                 name: "mason",
                 header: "Каменоломня",
