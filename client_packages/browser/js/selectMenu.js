@@ -7219,6 +7219,82 @@ var selectMenu = new Vue({
                     }
                 }
             },
+            "moonshine": {
+                name: "moonshine",
+                header: "Самогонщик",
+                items: [
+                    { text: "Состояние", values: ["Производство остановлено"] },
+                    { text: "Оставшееся время", values: ["—"] },
+                    { text: "Готовых партий", values: ["0"] },
+                    { text: "Оплата", values: ["$0"] },
+                    { text: "Начать перегонку" },
+                    { text: "Забрать партию" },
+                    { text: "Остановить производство" },
+                    { text: "Закрыть" },
+                ],
+                i: 0,
+                j: 0,
+                data: null,
+                formatTime(ms) {
+                    if (!ms || ms <= 0) return '—';
+                    var totalSeconds = Math.ceil(ms / 1000);
+                    var minutes = Math.floor(totalSeconds / 60);
+                    var seconds = totalSeconds % 60;
+                    if (minutes > 0) {
+                        return `~${minutes} мин. ${seconds < 10 ? '0' + seconds : seconds} сек.`;
+                    }
+                    return `~${seconds} сек.`;
+                },
+                init(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    this.update(data);
+                },
+                update(data) {
+                    if (typeof data == 'string') data = JSON.parse(data);
+                    data = data || {};
+                    this.data = data;
+                    this.items[0].values[0] = data.status || 'Производство остановлено';
+                    this.items[1].values[0] = this.formatTime(data.timeLeft);
+                    this.items[2].values[0] = `${data.completed || 0}`;
+                    this.items[3].values[0] = `$${data.reward || 0}`;
+                },
+                handler(eventName) {
+                    var item = this.items[this.i];
+                    if (!item) return;
+                    if (eventName == 'onItemSelected') {
+                        switch (item.text) {
+                            case 'Начать перегонку':
+                                if (this.data && (this.data.active || this.data.ready)) {
+                                    mp.trigger('selectMenu.notification', 'Производство уже запущено');
+                                    break;
+                                }
+                                mp.trigger('callRemote', 'moonshine.production.start');
+                                break;
+                            case 'Забрать партию':
+                                if (!this.data || !this.data.ready) {
+                                    mp.trigger('selectMenu.notification', 'Партия еще не готова');
+                                    break;
+                                }
+                                mp.trigger('callRemote', 'moonshine.production.collect');
+                                break;
+                            case 'Остановить производство':
+                                if (!this.data || (!this.data.active && !this.data.ready)) {
+                                    mp.trigger('selectMenu.notification', 'Производство не запущено');
+                                    break;
+                                }
+                                mp.trigger('callRemote', 'moonshine.production.cancel');
+                                break;
+                            case 'Закрыть':
+                                selectMenu.show = false;
+                                mp.trigger('moonshine.menu.closed');
+                                break;
+                        }
+                    } else if (eventName == 'onBackspacePressed') {
+                        selectMenu.show = false;
+                        mp.trigger('moonshine.menu.closed');
+                    }
+                }
+            },
             "mason": {
                 name: "mason",
                 header: "Каменоломня",
