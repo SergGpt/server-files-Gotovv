@@ -95,17 +95,17 @@ function createPeds() {
     [
         {
             model: "a_m_m_farmer_01",
-            position: { x: 1462.937, y: 1139.912, z: 114.327 },
+            position: { x: 1479.9052734375, y: 1154.0726318359375, z: 114.30072021484375 },
             heading: 90.0,
         },
         {
             model: "ig_old_man1a",
-            position: { x: 1458.886, y: 1144.987, z: 114.333 },
+            position: { x: 1479.9052734375, y: 1154.0726318359375, z: 114.30072021484375 },
             heading: 252.0,
         },
         {
             model: "s_m_m_chemsec_01",
-            position: { x: 1467.084, y: 1141.843, z: 114.346 },
+            position: { x: 1479.9052734375, y: 1154.0726318359375, z: 114.30072021484375 },
             heading: 0.0,
         }
     ].forEach(data => mp.events.call('NPC.create', data));

@@ -32,9 +32,9 @@ module.exports = {
     harvestsPerLevel: 100,
     maxLevel: 20,
 
-    farmMenuPos: new mp.Vector3(1462.825, 1139.224, 114.327 - 1),
-    vendorPos: new mp.Vector3(1459.104, 1144.663, 114.333 - 1),
-    craftPos: new mp.Vector3(1466.912, 1141.138, 114.346 - 1),
+    farmMenuPos: new mp.Vector3(1479.9052734375, 1154.0726318359375, 114.30072021484375 - 1),
+    vendorPos: new mp.Vector3(1479.9052734375, 1154.0726318359375, 114.30072021484375 - 1),
+    craftPos: new mp.Vector3(1479.9052734375, 1154.0726318359375, 114.30072021484375 - 1),
 
     plotsData: [
         { x: 1471.312, y: 1160.544, z: 114.322 },
