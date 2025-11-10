@@ -40,8 +40,16 @@ mp.events.add({
             mp.callCEFV(`if (selectMenu.menu && selectMenu.menu.name === 'pawnshop') selectMenu.show = false;`);
             return;
         }
+
+        let data;
+        try {
+            data = JSON.parse(json);
+        } catch (e) {
+            return mp.console.logInfo(`pawnshops.menu.show parse error: ${e.message}`);
+        }
+
         mp.prompt.hide();
-        mp.callCEFV(`selectMenu.menus['pawnshop'].init(${json});`);
+        mp.callCEFV(`selectMenu.menus['pawnshop'].init(${JSON.stringify(data)});`);
         mp.callCEFV(`selectMenu.showByName('pawnshop');`);
     },
     'pawnshops.menu.hide': () => {
