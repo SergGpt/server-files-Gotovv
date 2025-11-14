@@ -48,6 +48,11 @@ module.exports = {
                 params.litres = 0;
                 params.max = 20;
                 break;
+            case 67:
+                params.model = 'weapon_crowbar';
+                params.weaponHash = mp.joaat('weapon_crowbar');
+                params.health = 100;
+                break;
             case 34:
                 params.thirst = 100;
                 break;

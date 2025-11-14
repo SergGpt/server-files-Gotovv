@@ -59,6 +59,12 @@ module.exports = {
                 products: 10
             },
             {
+                id: 67,
+                name: 'Монтировка',
+                description: 'Используется для вскрытия ящиков с лутом.',
+                products: 8
+            },
+            {
                 id: 13,
                 name: 'Сумка',
                 description: 'Сумка для переноса предметов.',
