@@ -14,8 +14,10 @@ mp.lootboxes = {
         try {
             const player = mp.players.local;
             const handsItem = mp.inventory?.getHandsItem ? mp.inventory.getHandsItem(player) : null;
-            if (handsItem && (handsItem.itemId === CROWBAR_ITEM_ID || handsItem.model === 'weapon_crowbar')) {
-                return true;
+            if (handsItem) {
+                if (handsItem.itemId === CROWBAR_ITEM_ID) return true;
+                if (handsItem.model === 'weapon_crowbar') return true;
+                if (handsItem.params && handsItem.params.weaponHash === CROWBAR_HASH) return true;
             }
 
             const handsVar = player.getVariable('hands');

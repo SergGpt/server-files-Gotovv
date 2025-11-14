@@ -16,16 +16,41 @@ const HAND_COMBAT_HASH_TO_ITEM = Object.keys(HAND_COMBAT_WEAPON_HASHES).reduce((
     if (hash) acc[hash] = parseInt(itemId, 10);
     return acc;
 }, {});
-
-const buildHandCombatItem = (itemId, modelName, weaponHash) => ({
-    itemId,
-    model: modelName,
-    params: {
-        model: modelName,
-        weaponHash: weaponHash,
+const HAND_COMBAT_DEFAULTS = Object.keys(HAND_COMBAT_MODELS).reduce((acc, key) => {
+    const id = parseInt(key, 10);
+    acc[id] = {
+        model: HAND_COMBAT_MODELS[id],
+        weaponHash: HAND_COMBAT_WEAPON_HASHES[id],
         health: 100,
-    },
-});
+    };
+    return acc;
+}, {});
+
+const ensureParamsContainer = (target) => {
+    if (!target.params || typeof target.params !== 'object') target.params = {};
+    return target.params;
+};
+
+const applyHandCombatDefaults = (target, itemIdOverride) => {
+    if (!target) return target;
+    const itemId = itemIdOverride != null ? itemIdOverride : target.itemId;
+    const defaults = HAND_COMBAT_DEFAULTS[itemId];
+    const params = ensureParamsContainer(target);
+
+    if (defaults) {
+        if (!target.model && defaults.model) target.model = defaults.model;
+        if (target.model && params.model == null) params.model = target.model;
+
+        if (target.weaponHash == null && defaults.weaponHash) target.weaponHash = defaults.weaponHash;
+        if (params.weaponHash == null && defaults.weaponHash) params.weaponHash = defaults.weaponHash;
+
+        if (params.health == null && defaults.health != null) params.health = defaults.health;
+    } else if (target.model && params.model == null) {
+        params.model = target.model;
+    }
+
+    return target;
+};
 
 mp.inventory = {
     groundMaxDist: 1.8,
@@ -283,45 +308,44 @@ mp.inventory = {
     // Функция для получения предмета в руках
     getHandsItem(player) {
         try {
-            if (!player || !mp.players.exists(player)) {
-                console.log(`[Inventory] getHandsItem failed: Invalid player`);
-                return null;
-            }
+            if (!player || !mp.players.exists(player)) return null;
+
             if (player.hands) {
-                const itemId = player.hands.itemId;
-                const fallbackModel = player.hands.model || this.getHandCombatModel(itemId);
-                const weaponHash = player.hands.weaponHash || this.getHandCombatWeaponHash(itemId) || (fallbackModel ? mp.game.joaat(fallbackModel) : 0);
-                if (fallbackModel && !player.hands.model) player.hands.model = fallbackModel;
-                if (weaponHash && !player.hands.weaponHash) player.hands.weaponHash = weaponHash;
-                const item = buildHandCombatItem(itemId, fallbackModel, weaponHash);
-                console.log(`[Inventory] getHandsItem: Returning item for player ${player.remoteId}`, item);
-                return item;
+                applyHandCombatDefaults(player.hands, player.hands.itemId);
+                return {
+                    itemId: player.hands.itemId,
+                    model: player.hands.model || null,
+                    params: Object.assign({}, player.hands.params || {}),
+                };
             }
 
             const handsVar = player.getVariable ? player.getVariable("hands") : null;
             if (handsVar) {
                 const info = this.itemsInfo ? this.itemsInfo[handsVar] : null;
-                const modelName = (info && info.model) || this.getHandCombatModel(handsVar);
-                const weaponHash = this.getHandCombatWeaponHash(handsVar) || (modelName ? mp.game.joaat(modelName) : 0);
-                const item = buildHandCombatItem(handsVar, modelName, weaponHash);
-                console.log(`[Inventory] getHandsItem: Fallback item for player ${player.remoteId}`, item);
-                return item;
+                const base = {
+                    itemId: handsVar,
+                    model: info && info.model ? info.model : this.getHandCombatModel(handsVar),
+                    params: {},
+                };
+                applyHandCombatDefaults(base, handsVar);
+                return base;
             }
 
-            const currentWeapon = typeof player.weapon === 'number' ? player.weapon : parseInt(player.weapon || 0);
+            const currentWeapon = typeof player.weapon === 'number' ? player.weapon : parseInt(player.weapon || 0, 10) || 0;
             const combatItemId = HAND_COMBAT_HASH_TO_ITEM[currentWeapon];
             if (combatItemId) {
-                const modelName = this.getHandCombatModel(combatItemId);
-                const weaponHash = this.getHandCombatWeaponHash(combatItemId) || currentWeapon;
-                const item = buildHandCombatItem(combatItemId, modelName, weaponHash);
-                console.log(`[Inventory] getHandsItem: Derived from weapon hash for player ${player.remoteId}`, item);
-                return item;
+                const base = {
+                    itemId: combatItemId,
+                    model: this.getHandCombatModel(combatItemId),
+                    params: {},
+                };
+                applyHandCombatDefaults(base, combatItemId);
+                return base;
             }
 
-            console.log(`[Inventory] getHandsItem: No item in hands for player ${player.remoteId}`);
             return null;
         } catch (e) {
-            console.error(`[Inventory] Error in getHandsItem: ${e.message}`);
+            mp.console.logInfo(`[Inventory] Error in getHandsItem: ${e.message}`);
             return null;
         }
     },
@@ -370,9 +394,11 @@ mp.inventory = {
                         player.hands = {
                             itemId,
                             model: fallbackModel,
-                            weaponHash: this.getHandCombatWeaponHash(itemId) || mp.game.joaat(fallbackModel),
+                            weaponHash: this.getHandCombatWeaponHash(itemId) || (fallbackModel ? mp.game.joaat(fallbackModel) : null),
                             object: null,
+                            params: {},
                         };
+                        applyHandCombatDefaults(player.hands, itemId);
                     } else {
                         console.error(`No info found for item ${itemId}`);
                     }
@@ -385,9 +411,11 @@ mp.inventory = {
                         player.hands = {
                             itemId,
                             model: fallbackModel,
-                            weaponHash: this.getHandCombatWeaponHash(itemId) || mp.game.joaat(fallbackModel),
+                            weaponHash: this.getHandCombatWeaponHash(itemId) || (fallbackModel ? mp.game.joaat(fallbackModel) : null),
                             object: null,
+                            params: {},
                         };
+                        applyHandCombatDefaults(player.hands, itemId);
                     } else {
                         console.error(`No attachInfo found for item ${itemId}`);
                     }
@@ -517,8 +545,10 @@ mp.inventory = {
                     bone: targetBone,
                     boneIndex: boneIndex,
                     model: modelName,
-                    weaponHash: this.getHandCombatWeaponHash(itemId) || mp.game.joaat(modelName)
+                    weaponHash: this.getHandCombatWeaponHash(itemId) || mp.game.joaat(modelName),
+                    params: { model: modelName }
                 };
+                applyHandCombatDefaults(player.hands, itemId);
 
                 console.log(`✓ Attached ${modelName} (item ${itemId}) to bone ${targetBone}`);
             }, 200);

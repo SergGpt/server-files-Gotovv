@@ -129,9 +129,9 @@
 }
 
 #shop .main .body .content .items .item img {
-    width: 7.68vh;
-    height: 7.68vh;
-    max-width: 100%;
+    width: auto;
+    height: auto;
+    max-width: 7.68vh;
     max-height: 7.68vh;
     margin: 0 auto;
     object-fit: contain;

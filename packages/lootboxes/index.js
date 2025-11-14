@@ -83,6 +83,7 @@ module.exports = {
         }
 
         const crowbar = inventory.getHandsItem(player);
+        if (crowbar) inventory.ensureHandCombatParams(crowbar, player);
         if (!this.isCrowbar(player, crowbar)) {
             return outError('Возьмите в руки монтировку');
         }
